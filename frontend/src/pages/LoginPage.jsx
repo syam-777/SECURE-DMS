@@ -1,4 +1,5 @@
 ﻿import { useState } from "react";
+import { Link } from "react-router-dom";
 import "./LoginPage.css";
 
 function LoginPage() {
@@ -71,7 +72,7 @@ function LoginPage() {
 
         <div className="login-footer">
           <p className="register-link">
-            Don&apos;t have an account? <a href="/register">Register</a>
+            Don&apos;t have an account? <Link to="/register">Register</Link>
           </p>
           <p className="security-message">
             Your documents are protected with secure access control.
