@@ -147,18 +147,24 @@ const versionHistory = [
     action: "Updated investigation findings",
     updatedBy: "Sgt. A. Sharma",
     date: "2026-09-02",
+    integrity: "Verified",
+    hash: "8f3a2d91e7b4c6f0a123456789abcdef0123456789abcdef0123456789c91d",
   },
   {
     version: 2,
     action: "Added forensic report and communication logs",
     updatedBy: "Sgt. A. Sharma",
     date: "2026-08-25",
+    integrity: "Verified",
+    hash: "42bd8e3f1a7c90d5e6f123456789abcdef0123456789abcdef012345677a21",
   },
   {
     version: 1,
     action: "Initial case creation with FIR and preliminary evidence",
     updatedBy: "Admin User",
     date: "2026-08-10",
+    integrity: "Verified",
+    hash: "a91c4e82d3b7f06a9123456789abcdef0123456789abcdef012345674e82",
   },
 ];
 
@@ -217,6 +223,7 @@ const activityHistory = [
 function CaseDetailsPage() {
   const { caseId } = useParams();
   const [activeTab, setActiveTab] = useState("documents");
+  const [selectedVersion, setSelectedVersion] = useState(3);
   const caseData = allCases[caseId];
 
   if (!caseData) {
@@ -486,59 +493,155 @@ function CaseDetailsPage() {
                   new versions instead of overwriting existing records.
                 </span>
               </div>
-              <div className="version-timeline">
-                {versionHistory.map((entry, index) => (
-                  <div className="version-entry" key={entry.version}>
-                    <div className="version-marker">
-                      <div
-                        className={`version-dot ${index === 0 ? "latest" : ""}`}
-                      />
-                      {index < versionHistory.length - 1 && (
-                        <div className="version-line" />
-                      )}
-                    </div>
-                    <div className="version-content">
-                      <div className="version-header">
-                        <span className="version-number">
-                          Version {entry.version}
-                        </span>
-                        {index === 0 && (
-                          <span className="version-latest-badge">Latest</span>
+              <div className="version-layout">
+                <div className="version-timeline">
+                  {versionHistory.map((entry, index) => (
+                    <div
+                      className={`version-entry ${selectedVersion === entry.version ? "selected" : ""}`}
+                      key={entry.version}
+                      onClick={() => setSelectedVersion(entry.version)}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          setSelectedVersion(entry.version);
+                        }
+                      }}
+                    >
+                      <div className="version-marker">
+                        <div
+                          className={`version-dot ${index === 0 ? "latest" : ""}`}
+                        />
+                        {index < versionHistory.length - 1 && (
+                          <div className="version-line" />
                         )}
                       </div>
-                      <p className="version-action">{entry.action}</p>
-                      <div className="version-meta">
-                        <span>{entry.updatedBy}</span>
-                        <span className="version-separator">&#183;</span>
-                        <span>{entry.date}</span>
-                      </div>
-                      <div className="version-actions">
-                        <button
-                          className="version-action-button"
-                          onClick={() =>
-                            alert(
-                              `Comparing Version ${entry.version} with previous version`
-                            )
-                          }
-                        >
-                          Compare Versions
-                        </button>
-                        {index > 0 && (
+                      <div className="version-content">
+                        <div className="version-header">
+                          <span className="version-number">
+                            Version {entry.version}
+                          </span>
+                          {index === 0 && (
+                            <span className="version-latest-badge">Latest</span>
+                          )}
+                        </div>
+                        <p className="version-action">{entry.action}</p>
+                        <div className="version-meta">
+                          <span>{entry.updatedBy}</span>
+                          <span className="version-separator">&#183;</span>
+                          <span>{entry.date}</span>
+                        </div>
+                        <div className="version-actions">
                           <button
-                            className="version-action-button rollback"
-                            onClick={() =>
+                            className="version-action-button"
+                            onClick={(e) => {
+                              e.stopPropagation();
                               alert(
-                                `Rollback to Version ${entry.version} requested`
-                              )
-                            }
+                                `Comparing Version ${entry.version} with previous version`
+                              );
+                            }}
                           >
-                            Rollback
+                            Compare Versions
                           </button>
-                        )}
+                          {index > 0 && (
+                            <button
+                              className="version-action-button rollback"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                alert(
+                                  `Rollback to Version ${entry.version} requested`
+                                );
+                              }}
+                            >
+                              Rollback
+                            </button>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
+                <div className="version-details-panel">
+                  {(() => {
+                    const entry = versionHistory.find(
+                      (v) => v.version === selectedVersion
+                    );
+                    if (!entry) return null;
+                    const isLatest = entry.version === versionHistory[0].version;
+                    const displayHash =
+                      entry.hash.slice(0, 4) +
+                      "..." +
+                      entry.hash.slice(-4);
+                    return (
+                      <>
+                        <div className="version-details-header">
+                          <h3 className="version-details-title">
+                            Version {entry.version} Details
+                          </h3>
+                          {isLatest && (
+                            <span className="version-latest-badge">Current</span>
+                          )}
+                        </div>
+                        <div className="version-details-grid">
+                          <div className="version-detail-field">
+                            <span className="version-detail-label">
+                              Updated By
+                            </span>
+                            <span className="version-detail-value">
+                              {entry.updatedBy}
+                            </span>
+                          </div>
+                          <div className="version-detail-field">
+                            <span className="version-detail-label">Date</span>
+                            <span className="version-detail-value">
+                              {entry.date}
+                            </span>
+                          </div>
+                          <div className="version-detail-field version-detail-full">
+                            <span className="version-detail-label">
+                              Change Description
+                            </span>
+                            <span className="version-detail-value">
+                              {entry.action}
+                            </span>
+                          </div>
+                          <div className="version-detail-field">
+                            <span className="version-detail-label">
+                              Integrity Status
+                            </span>
+                            <span className="version-detail-value">
+                              <span
+                                className={`integrity-badge integrity-${entry.integrity.toLowerCase()}`}
+                              >
+                                &#10003; {entry.integrity}
+                              </span>
+                            </span>
+                          </div>
+                          <div className="version-detail-field">
+                            <span className="version-detail-label">
+                              SHA-256 Hash
+                            </span>
+                            <span className="version-detail-value version-hash">
+                              {displayHash}
+                            </span>
+                          </div>
+                          <div className="version-detail-field">
+                            <span className="version-detail-label">
+                              Current Version
+                            </span>
+                            <span className="version-detail-value">
+                              {isLatest ? "Yes" : "No"}
+                            </span>
+                          </div>
+                        </div>
+                        <p className="version-security-note">
+                          Previous versions are retained and cannot be silently
+                          overwritten. Each version has its own integrity record.
+                        </p>
+                      </>
+                    );
+                  })()}
+                </div>
               </div>
             </div>
           )}
