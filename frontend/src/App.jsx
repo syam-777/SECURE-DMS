@@ -8,6 +8,7 @@ import AIAssistantPage from './pages/AIAssistantPage'
 import SearchPage from './pages/SearchPage'
 import AuditLogsPage from './pages/AuditLogsPage'
 import CaseDetailsPage from './pages/CaseDetailsPage'
+import DocumentDetailsPage from './pages/DocumentDetailsPage'
 
 function App() {
   return (
@@ -23,6 +24,7 @@ function App() {
         <Route path="/search" element={<SearchPage />} />
         <Route path="/audit-logs" element={<AuditLogsPage />} />
         <Route path="/case-details/:caseId" element={<CaseDetailsPage />} />
+        <Route path="/document-details/:documentId" element={<DocumentDetailsPage />} />
       </Routes>
     </BrowserRouter>
   )

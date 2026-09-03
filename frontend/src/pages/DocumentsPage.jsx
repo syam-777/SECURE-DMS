@@ -1,5 +1,5 @@
 ﻿import { useState } from "react";
-import { NavLink } from "react-router-dom";
+import { NavLink, Link } from "react-router-dom";
 import "./DocumentsPage.css";
 
 const initialDocuments = [
@@ -149,10 +149,6 @@ function DocumentsPage() {
     setFormErrors({});
   };
 
-  const handleView = (doc) => {
-    alert(`Viewing ${doc.name}`);
-  };
-
   const filteredDocuments = documents.filter((doc) => {
     const matchesSearch =
       doc.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -285,12 +281,12 @@ function DocumentsPage() {
                       </span>
                     </td>
                     <td>
-                      <button
+                      <Link
+                        to={`/document-details/${doc.id}`}
                         className="view-button"
-                        onClick={() => handleView(doc)}
                       >
                         View
-                      </button>
+                      </Link>
                     </td>
                   </tr>
                 ))}
