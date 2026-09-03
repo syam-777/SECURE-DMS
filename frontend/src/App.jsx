@@ -5,6 +5,7 @@ import DashboardPage from './pages/DashboardPage'
 import CasesPage from './pages/CasesPage'
 import DocumentsPage from './pages/DocumentsPage'
 import AIAssistantPage from './pages/AIAssistantPage'
+import SearchPage from './pages/SearchPage'
 
 function App() {
   return (
@@ -17,6 +18,7 @@ function App() {
         <Route path="/cases" element={<CasesPage />} />
         <Route path="/documents" element={<DocumentsPage />} />
         <Route path="/ai-assistant" element={<AIAssistantPage />} />
+        <Route path="/search" element={<SearchPage />} />
       </Routes>
     </BrowserRouter>
   )
