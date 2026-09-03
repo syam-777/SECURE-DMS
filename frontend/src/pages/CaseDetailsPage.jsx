@@ -2,12 +2,27 @@ import { useState } from "react";
 import { NavLink, Link, useParams } from "react-router-dom";
 import "./CaseDetailsPage.css";
 
+const caseTypeOptions = [
+  "Cyber Crime",
+  "Financial Crime",
+  "Theft",
+  "Property",
+  "Forgery",
+  "Public Order",
+  "Other",
+];
+
+const officerOptions = ["Sgt. A. Sharma", "Insp. R. Verma", "PO K. Nair"];
+
+const priorityOptions = ["Low", "Medium", "High", "Critical"];
+
 const allCases = {
   "CASE-1001": {
     id: "CASE-1001",
     title: "Cyber Fraud Investigation",
     type: "Cyber Crime",
     officer: "Sgt. A. Sharma",
+    priority: "High",
     created: "2026-08-10",
     updated: "2026-09-02",
     status: "Active",
@@ -19,6 +34,7 @@ const allCases = {
     title: "Property Theft",
     type: "Theft",
     officer: "Insp. R. Verma",
+    priority: "Medium",
     created: "2026-08-12",
     updated: "2026-08-30",
     status: "Pending",
@@ -30,6 +46,7 @@ const allCases = {
     title: "Identity Theft Ring",
     type: "Cyber Crime",
     officer: "Sgt. A. Sharma",
+    priority: "Critical",
     created: "2026-08-15",
     updated: "2026-09-01",
     status: "Active",
@@ -41,6 +58,7 @@ const allCases = {
     title: "Vehicle Break-In",
     type: "Property",
     officer: "PO K. Nair",
+    priority: "Low",
     created: "2026-08-18",
     updated: "2026-08-22",
     status: "Closed",
@@ -52,6 +70,7 @@ const allCases = {
     title: "Bank Fraud Investigation",
     type: "Financial Crime",
     officer: "Insp. R. Verma",
+    priority: "High",
     created: "2026-08-20",
     updated: "2026-09-03",
     status: "Active",
@@ -63,6 +82,7 @@ const allCases = {
     title: "Public Disturbance Report",
     type: "Public Order",
     officer: "PO K. Nair",
+    priority: "Low",
     created: "2026-08-25",
     updated: "2026-08-28",
     status: "Pending",
@@ -74,6 +94,7 @@ const allCases = {
     title: "Counterfeit Documents Seized",
     type: "Forgery",
     officer: "Sgt. A. Sharma",
+    priority: "Medium",
     created: "2026-08-27",
     updated: "2026-08-31",
     status: "Closed",
@@ -85,6 +106,7 @@ const allCases = {
     title: "Digital Extortion Case",
     type: "Cyber Crime",
     officer: "Insp. R. Verma",
+    priority: "Critical",
     created: "2026-08-30",
     updated: "2026-09-03",
     status: "Active",
@@ -224,7 +246,109 @@ function CaseDetailsPage() {
   const { caseId } = useParams();
   const [activeTab, setActiveTab] = useState("documents");
   const [selectedVersion, setSelectedVersion] = useState(3);
-  const caseData = allCases[caseId];
+  const [cases, setCases] = useState(allCases);
+  const [versions, setVersions] = useState(versionHistory);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editForm, setEditForm] = useState({
+    title: "",
+    type: "",
+    priority: "",
+    officer: "",
+    description: "",
+  });
+  const [editErrors, setEditErrors] = useState({});
+
+  const caseData = cases[caseId];
+
+  const handleOpenEdit = () => {
+    setEditForm({
+      title: caseData.title,
+      type: caseData.type,
+      priority: caseData.priority || "",
+      officer: caseData.officer,
+      description: caseData.description,
+    });
+    setEditErrors({});
+    setIsEditModalOpen(true);
+  };
+
+  const handleEditChange = (e) => {
+    const { name, value } = e.target;
+    setEditForm((prev) => ({ ...prev, [name]: value }));
+    setEditErrors((prev) => ({ ...prev, [name]: "" }));
+  };
+
+  const validateEdit = () => {
+    const errors = {};
+    if (!editForm.title.trim()) {
+      errors.title = "Case title is required.";
+    }
+    if (!editForm.type) {
+      errors.type = "Please select a case type.";
+    }
+    if (!editForm.priority) {
+      errors.priority = "Please select a priority.";
+    }
+    if (!editForm.officer) {
+      errors.officer = "Please select an assigned officer.";
+    }
+    if (!editForm.description.trim()) {
+      errors.description = "Description is required.";
+    }
+    return errors;
+  };
+
+  const handleSaveAsNewVersion = (e) => {
+    e.preventDefault();
+    const errors = validateEdit();
+    setEditErrors(errors);
+    if (Object.keys(errors).length > 0) {
+      return;
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+    const nextVersion =
+      Math.max(...versions.map((v) => v.version)) + 1;
+
+    const newVersionEntry = {
+      version: nextVersion,
+      action: "Case details updated",
+      updatedBy: "Admin User",
+      date: today,
+      integrity: "Verified",
+      hash:
+        "ab12cd34ef5678" +
+        Math.random().toString(16).slice(2, 42) +
+        nextVersion.toString(16),
+    };
+
+    setVersions((prev) => [newVersionEntry, ...prev]);
+
+    setCases((prev) => ({
+      ...prev,
+      [caseId]: {
+        ...prev[caseId],
+        title: editForm.title.trim(),
+        type: editForm.type,
+        priority: editForm.priority,
+        officer: editForm.officer,
+        description: editForm.description.trim(),
+        updated: today,
+      },
+    }));
+
+    setSelectedVersion(nextVersion);
+    setIsEditModalOpen(false);
+    setEditErrors({});
+    alert(
+      `Case ${caseId} saved as Version ${nextVersion}.\n\nThe previous version has been retained.`
+    );
+  };
+
+  const handleCloseEdit = () => {
+    setIsEditModalOpen(false);
+    setEditErrors({});
+  };
 
   if (!caseData) {
     return (
@@ -363,11 +487,16 @@ function CaseDetailsPage() {
           <div className="case-info-card">
             <div className="case-info-header">
               <h2 className="case-info-title">{caseData.title}</h2>
-              <span
-                className={`status-badge status-${caseData.status.toLowerCase()}`}
-              >
-                {caseData.status}
-              </span>
+              <div className="case-info-header-actions">
+                <span
+                  className={`status-badge status-${caseData.status.toLowerCase()}`}
+                >
+                  {caseData.status}
+                </span>
+                <button className="edit-case-button" onClick={handleOpenEdit}>
+                  &#9998; Edit Case
+                </button>
+              </div>
             </div>
             <div className="case-info-grid">
               <div className="case-info-field">
@@ -379,6 +508,10 @@ function CaseDetailsPage() {
               <div className="case-info-field">
                 <span className="case-info-label">Case Type</span>
                 <span className="case-info-value">{caseData.type}</span>
+              </div>
+              <div className="case-info-field">
+                <span className="case-info-label">Priority</span>
+                <span className="case-info-value">{caseData.priority || "—"}</span>
               </div>
               <div className="case-info-field">
                 <span className="case-info-label">Assigned Officer</span>
@@ -495,7 +628,7 @@ function CaseDetailsPage() {
               </div>
               <div className="version-layout">
                 <div className="version-timeline">
-                  {versionHistory.map((entry, index) => (
+                  {versions.map((entry, index) => (
                     <div
                       className={`version-entry ${selectedVersion === entry.version ? "selected" : ""}`}
                       key={entry.version}
@@ -512,7 +645,7 @@ function CaseDetailsPage() {
                         <div
                           className={`version-dot ${index === 0 ? "latest" : ""}`}
                         />
-                        {index < versionHistory.length - 1 && (
+                        {index < versions.length - 1 && (
                           <div className="version-line" />
                         )}
                       </div>
@@ -563,11 +696,11 @@ function CaseDetailsPage() {
                 </div>
                 <div className="version-details-panel">
                   {(() => {
-                    const entry = versionHistory.find(
+                    const entry = versions.find(
                       (v) => v.version === selectedVersion
                     );
                     if (!entry) return null;
-                    const isLatest = entry.version === versionHistory[0].version;
+                    const isLatest = entry.version === versions[0].version;
                     const displayHash =
                       entry.hash.slice(0, 4) +
                       "..." +
@@ -697,6 +830,168 @@ function CaseDetailsPage() {
               </p>
             </div>
           </div>
+
+          {isEditModalOpen && (
+            <div
+              className="modal-overlay"
+              onClick={handleCloseEdit}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="edit-case-title"
+            >
+              <div
+                className="modal-content"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="modal-header">
+                  <div>
+                    <h2 id="edit-case-title" className="modal-title">
+                      Edit Case
+                    </h2>
+                    <p className="modal-subtitle">
+                      Updates are saved as a new version. The previous version
+                      is never overwritten.
+                    </p>
+                  </div>
+                  <button
+                    className="modal-close"
+                    onClick={handleCloseEdit}
+                    aria-label="Close"
+                  >
+                    &times;
+                  </button>
+                </div>
+
+                <form onSubmit={handleSaveAsNewVersion} noValidate>
+                  <div className="form-group">
+                    <label className="form-label" htmlFor="edit-title">
+                      Case Title <span className="required-mark">*</span>
+                    </label>
+                    <input
+                      id="edit-title"
+                      name="title"
+                      type="text"
+                      className={`form-input ${editErrors.title ? "has-error" : ""}`}
+                      placeholder="Enter case title"
+                      value={editForm.title}
+                      onChange={handleEditChange}
+                    />
+                    {editErrors.title && (
+                      <span className="form-error">{editErrors.title}</span>
+                    )}
+                  </div>
+
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label className="form-label" htmlFor="edit-type">
+                        Case Type <span className="required-mark">*</span>
+                      </label>
+                      <select
+                        id="edit-type"
+                        name="type"
+                        className={`form-input ${editErrors.type ? "has-error" : ""}`}
+                        value={editForm.type}
+                        onChange={handleEditChange}
+                      >
+                        <option value="">Select case type</option>
+                        {caseTypeOptions.map((option) => (
+                          <option key={option} value={option}>
+                            {option}
+                          </option>
+                        ))}
+                      </select>
+                      {editErrors.type && (
+                        <span className="form-error">{editErrors.type}</span>
+                      )}
+                    </div>
+
+                    <div className="form-group">
+                      <label className="form-label" htmlFor="edit-priority">
+                        Priority <span className="required-mark">*</span>
+                      </label>
+                      <select
+                        id="edit-priority"
+                        name="priority"
+                        className={`form-input ${editErrors.priority ? "has-error" : ""}`}
+                        value={editForm.priority}
+                        onChange={handleEditChange}
+                      >
+                        <option value="">Select priority</option>
+                        {priorityOptions.map((option) => (
+                          <option key={option} value={option}>
+                            {option}
+                          </option>
+                        ))}
+                      </select>
+                      {editErrors.priority && (
+                        <span className="form-error">
+                          {editErrors.priority}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label" htmlFor="edit-officer">
+                      Assigned Officer <span className="required-mark">*</span>
+                    </label>
+                    <select
+                      id="edit-officer"
+                      name="officer"
+                      className={`form-input ${editErrors.officer ? "has-error" : ""}`}
+                      value={editForm.officer}
+                      onChange={handleEditChange}
+                    >
+                      <option value="">Select officer</option>
+                      {officerOptions.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
+                    {editErrors.officer && (
+                      <span className="form-error">
+                        {editErrors.officer}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label" htmlFor="edit-description">
+                      Description <span className="required-mark">*</span>
+                    </label>
+                    <textarea
+                      id="edit-description"
+                      name="description"
+                      className={`form-input form-textarea ${editErrors.description ? "has-error" : ""}`}
+                      placeholder="Enter case description"
+                      rows="4"
+                      value={editForm.description}
+                      onChange={handleEditChange}
+                    />
+                    {editErrors.description && (
+                      <span className="form-error">
+                        {editErrors.description}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="modal-actions">
+                    <button
+                      type="button"
+                      className="cancel-button"
+                      onClick={handleCloseEdit}
+                    >
+                      Cancel
+                    </button>
+                    <button type="submit" className="create-case-button">
+                      Save as New Version
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
         </main>
       </div>
     </div>
