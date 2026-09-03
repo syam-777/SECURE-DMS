@@ -14,18 +14,139 @@ const initialDocuments = [
 ];
 
 const documentTypes = ["All", "FIR Report", "Witness Statement", "Investigation Report", "Forensic Report", "Charge Sheet", "Court Filing"];
+const uploadTypeOptions = [
+  "FIR",
+  "Investigation Report",
+  "Witness Statement",
+  "Charge Sheet",
+  "Forensic Report",
+  "Court Filing",
+  "Evidence",
+  "Legal Notice",
+  "Other",
+];
 const caseIds = ["All", "CASE-1001", "CASE-1003", "CASE-1004", "CASE-1005", "CASE-1006", "CASE-1008"];
+const caseOptions = [
+  "CASE-1001",
+  "CASE-1002",
+  "CASE-1003",
+  "CASE-1004",
+  "CASE-1005",
+  "CASE-1006",
+  "CASE-1007",
+  "CASE-1008",
+];
 const statuses = ["All", "Verified", "Protected", "Pending"];
+const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
 function DocumentsPage() {
-  const [documents] = useState(initialDocuments);
+  const [documents, setDocuments] = useState(initialDocuments);
   const [searchTerm, setSearchTerm] = useState("");
   const [typeFilter, setTypeFilter] = useState("All");
   const [caseFilter, setCaseFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [formData, setFormData] = useState({
+    name: "",
+    type: "",
+    caseId: "",
+    description: "",
+    file: null,
+  });
+  const [formErrors, setFormErrors] = useState({});
+
+  const generateDocumentId = () => {
+    const maxNum = documents.reduce((max, d) => {
+      const num = parseInt(d.id.replace("DOC-", ""), 10);
+      return Math.max(max, num);
+    }, 5000);
+    return `DOC-${maxNum + 1}`;
+  };
 
   const handleUpload = () => {
-    alert("Document upload will be connected to the backend later.");
+    setFormData({
+      name: "",
+      type: "",
+      caseId: "",
+      description: "",
+      file: null,
+    });
+    setFormErrors({});
+    setIsModalOpen(true);
+  };
+
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setFormData((prev) => ({ ...prev, [name]: value }));
+    setFormErrors((prev) => ({ ...prev, [name]: "" }));
+  };
+
+  const handleFileChange = (e) => {
+    const file = e.target.files[0];
+    setFormData((prev) => ({ ...prev, file }));
+    setFormErrors((prev) => ({ ...prev, file: "" }));
+  };
+
+  const validate = () => {
+    const errors = {};
+    if (!formData.name.trim()) {
+      errors.name = "Document name is required.";
+    }
+    if (!formData.type) {
+      errors.type = "Please select a document type.";
+    }
+    if (!formData.caseId) {
+      errors.caseId = "Please select a case.";
+    }
+    if (!formData.description.trim()) {
+      errors.description = "Description is required.";
+    }
+    if (!formData.file) {
+      errors.file = "Please select a file to upload.";
+    } else if (formData.file.size > MAX_FILE_SIZE) {
+      errors.file = `File exceeds the ${(MAX_FILE_SIZE / (1024 * 1024)).toFixed(0)} MB size limit.`;
+    }
+    return errors;
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    const errors = validate();
+    setFormErrors(errors);
+    if (Object.keys(errors).length > 0) {
+      return;
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+    const newDoc = {
+      id: generateDocumentId(),
+      name: formData.name.trim(),
+      type: formData.type,
+      caseId: formData.caseId,
+      uploadedBy: "Admin User",
+      uploaded: today,
+      updated: today,
+      status: "Pending",
+    };
+
+    setDocuments((prev) => [newDoc, ...prev]);
+    setIsModalOpen(false);
+    setFormData({
+      name: "",
+      type: "",
+      caseId: "",
+      description: "",
+      file: null,
+    });
+    setFormErrors({});
+    alert(
+      `Document ${newDoc.id} uploaded successfully!\n\nName: ${newDoc.name}\nType: ${newDoc.type}\nCase: ${newDoc.caseId}\nStatus: Pending (SHA-256 verification will be handled by the backend)`
+    );
+  };
+
+  const handleClose = () => {
+    setIsModalOpen(false);
+    setFormErrors({});
   };
 
   const handleView = (doc) => {
@@ -183,6 +304,160 @@ function DocumentsPage() {
               </tbody>
             </table>
           </div>
+          {isModalOpen && (
+            <div
+              className="modal-overlay"
+              onClick={handleClose}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="upload-document-title"
+            >
+              <div
+                className="modal-content"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="modal-header">
+                  <div>
+                    <h2 id="upload-document-title" className="modal-title">
+                      Upload Document
+                    </h2>
+                    <p className="modal-subtitle">
+                      Upload a new document to the selected case. All fields are
+                      required.
+                    </p>
+                  </div>
+                  <button
+                    className="modal-close"
+                    onClick={handleClose}
+                    aria-label="Close"
+                  >
+                    &times;
+                  </button>
+                </div>
+
+                <form onSubmit={handleSubmit} noValidate>
+                  <div className="form-group">
+                    <label className="form-label" htmlFor="name">
+                      Document Name <span className="required-mark">*</span>
+                    </label>
+                    <input
+                      id="name"
+                      name="name"
+                      type="text"
+                      className={`form-input ${formErrors.name ? "has-error" : ""}`}
+                      placeholder="e.g. FIR_Report_CASE1009.pdf"
+                      value={formData.name}
+                      onChange={handleChange}
+                    />
+                    {formErrors.name && (
+                      <span className="form-error">{formErrors.name}</span>
+                    )}
+                  </div>
+
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label className="form-label" htmlFor="type">
+                        Document Type <span className="required-mark">*</span>
+                      </label>
+                      <select
+                        id="type"
+                        name="type"
+                        className={`form-input ${formErrors.type ? "has-error" : ""}`}
+                        value={formData.type}
+                        onChange={handleChange}
+                      >
+                        <option value="">Select document type</option>
+                        {uploadTypeOptions.map((option) => (
+                          <option key={option} value={option}>
+                            {option}
+                          </option>
+                        ))}
+                      </select>
+                      {formErrors.type && (
+                        <span className="form-error">{formErrors.type}</span>
+                      )}
+                    </div>
+
+                    <div className="form-group">
+                      <label className="form-label" htmlFor="caseId">
+                        Case <span className="required-mark">*</span>
+                      </label>
+                      <select
+                        id="caseId"
+                        name="caseId"
+                        className={`form-input ${formErrors.caseId ? "has-error" : ""}`}
+                        value={formData.caseId}
+                        onChange={handleChange}
+                      >
+                        <option value="">Select case</option>
+                        {caseOptions.map((option) => (
+                          <option key={option} value={option}>
+                            {option}
+                          </option>
+                        ))}
+                      </select>
+                      {formErrors.caseId && (
+                        <span className="form-error">{formErrors.caseId}</span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label" htmlFor="description">
+                      Description <span className="required-mark">*</span>
+                    </label>
+                    <textarea
+                      id="description"
+                      name="description"
+                      className={`form-input form-textarea ${formErrors.description ? "has-error" : ""}`}
+                      placeholder="Enter document description"
+                      rows="3"
+                      value={formData.description}
+                      onChange={handleChange}
+                    />
+                    {formErrors.description && (
+                      <span className="form-error">
+                        {formErrors.description}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label" htmlFor="file">
+                      File Selection <span className="required-mark">*</span>
+                    </label>
+                    <input
+                      id="file"
+                      name="file"
+                      type="file"
+                      className={`form-input form-file ${formErrors.file ? "has-error" : ""}`}
+                      accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,.jpg,.jpeg,.png,.zip"
+                      onChange={handleFileChange}
+                    />
+                    <span className="form-hint">
+                      Maximum file size: 10 MB
+                    </span>
+                    {formErrors.file && (
+                      <span className="form-error">{formErrors.file}</span>
+                    )}
+                  </div>
+
+                  <div className="modal-actions">
+                    <button
+                      type="button"
+                      className="cancel-button"
+                      onClick={handleClose}
+                    >
+                      Cancel
+                    </button>
+                    <button type="submit" className="create-case-button">
+                      Upload Document
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
         </main>
       </div>
     </div>
