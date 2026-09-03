@@ -1,11 +1,11 @@
-﻿import { NavLink } from "react-router-dom";
+﻿import { NavLink, Link } from "react-router-dom";
 import "./DashboardPage.css";
 
 const summaryCards = [
-  { id: 1, label: "Total Cases", value: 24, icon: "\uD83D\uDCC1" },
-  { id: 2, label: "Total Documents", value: 156, icon: "\uD83D\uDCC4" },
-  { id: 3, label: "Pending Reviews", value: 8, icon: "\u23F3" },
-  { id: 4, label: "Recent Activity", value: 32, icon: "\uD83D\uDD0D" },
+  { id: 1, label: "Total Cases", value: 24, icon: "\uD83D\uDCC1", to: "/cases" },
+  { id: 2, label: "Total Documents", value: 156, icon: "\uD83D\uDCC4", to: "/documents" },
+  { id: 3, label: "Pending Reviews", value: 8, icon: "\u23F3", to: "/documents" },
+  { id: 4, label: "Recent Activity", value: 32, icon: "\uD83D\uDD0D", to: "/audit-logs" },
 ];
 
 const recentCases = [
@@ -66,11 +66,11 @@ function DashboardPage() {
 
           <div className="summary-cards">
             {summaryCards.map((card) => (
-              <div className="summary-card" key={card.id}>
+              <Link className="summary-card" key={card.id} to={card.to} aria-label={`${card.label}: ${card.value}`}>
                 <span className="card-icon">{card.icon}</span>
                 <span className="card-value">{card.value}</span>
                 <span className="card-label">{card.label}</span>
-              </div>
+              </Link>
             ))}
           </div>
 
