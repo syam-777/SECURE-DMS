@@ -15,13 +15,116 @@ const initialCases = [
 
 const statusFilters = ["All", "Active", "Pending", "Closed"];
 
+const caseTypeOptions = [
+  "Cyber Crime",
+  "Financial Crime",
+  "Theft",
+  "Property",
+  "Forgery",
+  "Public Order",
+  "Other",
+];
+
+const officerOptions = ["Sgt. A. Sharma", "Insp. R. Verma", "PO K. Nair"];
+
+const priorityOptions = ["Low", "Medium", "High", "Critical"];
+
 function CasesPage() {
   const [cases, setCases] = useState(initialCases);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [formData, setFormData] = useState({
+    title: "",
+    type: "",
+    description: "",
+    officer: "",
+    priority: "",
+  });
+  const [formErrors, setFormErrors] = useState({});
+
+  const generateCaseId = () => {
+    const maxNum = cases.reduce((max, c) => {
+      const num = parseInt(c.id.replace("CASE-", ""), 10);
+      return Math.max(max, num);
+    }, 1000);
+    return `CASE-${maxNum + 1}`;
+  };
 
   const handleCreateNew = () => {
-    alert("Create New Case functionality will be added soon.");
+    setFormData({
+      title: "",
+      type: "",
+      description: "",
+      officer: "",
+      priority: "",
+    });
+    setFormErrors({});
+    setIsModalOpen(true);
+  };
+
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setFormData((prev) => ({ ...prev, [name]: value }));
+    setFormErrors((prev) => ({ ...prev, [name]: "" }));
+  };
+
+  const validate = () => {
+    const errors = {};
+    if (!formData.title.trim()) {
+      errors.title = "Case title is required.";
+    }
+    if (!formData.type) {
+      errors.type = "Please select a case type.";
+    }
+    if (!formData.description.trim()) {
+      errors.description = "Description is required.";
+    }
+    if (!formData.officer) {
+      errors.officer = "Please select an assigned officer.";
+    }
+    if (!formData.priority) {
+      errors.priority = "Please select a priority.";
+    }
+    return errors;
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    const errors = validate();
+    setFormErrors(errors);
+    if (Object.keys(errors).length > 0) {
+      return;
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+    const newCase = {
+      id: generateCaseId(),
+      title: formData.title.trim(),
+      type: formData.type,
+      officer: formData.officer,
+      created: today,
+      updated: today,
+      status: "Pending",
+    };
+
+    setCases((prev) => [...prev, newCase]);
+    setIsModalOpen(false);
+    setFormData({
+      title: "",
+      type: "",
+      description: "",
+      officer: "",
+      priority: "",
+    });
+    alert(
+      `Case ${newCase.id} created successfully!\n\nTitle: ${newCase.title}\nType: ${newCase.type}\nOfficer: ${newCase.officer}\nPriority: ${formData.priority}\nStatus: Pending`
+    );
+  };
+
+  const handleClose = () => {
+    setIsModalOpen(false);
+    setFormErrors({});
   };
 
   const filteredCases = cases.filter((caseItem) => {
@@ -145,6 +248,166 @@ function CasesPage() {
               </tbody>
             </table>
           </div>
+          {isModalOpen && (
+            <div
+              className="modal-overlay"
+              onClick={handleClose}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="create-case-title"
+            >
+              <div
+                className="modal-content"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="modal-header">
+                  <div>
+                    <h2 id="create-case-title" className="modal-title">
+                      Create New Case
+                    </h2>
+                    <p className="modal-subtitle">
+                      Enter the details of the new case. All fields are
+                      required.
+                    </p>
+                  </div>
+                  <button
+                    className="modal-close"
+                    onClick={handleClose}
+                    aria-label="Close"
+                  >
+                    &times;
+                  </button>
+                </div>
+
+                <form onSubmit={handleSubmit} noValidate>
+                  <div className="form-group">
+                    <label className="form-label" htmlFor="title">
+                      Case Title <span className="required-mark">*</span>
+                    </label>
+                    <input
+                      id="title"
+                      name="title"
+                      type="text"
+                      className={`form-input ${formErrors.title ? "has-error" : ""}`}
+                      placeholder="Enter case title"
+                      value={formData.title}
+                      onChange={handleChange}
+                    />
+                    {formErrors.title && (
+                      <span className="form-error">{formErrors.title}</span>
+                    )}
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label" htmlFor="type">
+                      Case Type <span className="required-mark">*</span>
+                    </label>
+                    <select
+                      id="type"
+                      name="type"
+                      className={`form-input ${formErrors.type ? "has-error" : ""}`}
+                      value={formData.type}
+                      onChange={handleChange}
+                    >
+                      <option value="">Select case type</option>
+                      {caseTypeOptions.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
+                    {formErrors.type && (
+                      <span className="form-error">{formErrors.type}</span>
+                    )}
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label" htmlFor="description">
+                      Description <span className="required-mark">*</span>
+                    </label>
+                    <textarea
+                      id="description"
+                      name="description"
+                      className={`form-input form-textarea ${formErrors.description ? "has-error" : ""}`}
+                      placeholder="Enter case description"
+                      rows="4"
+                      value={formData.description}
+                      onChange={handleChange}
+                    />
+                    {formErrors.description && (
+                      <span className="form-error">
+                        {formErrors.description}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label className="form-label" htmlFor="officer">
+                        Assigned Officer{" "}
+                        <span className="required-mark">*</span>
+                      </label>
+                      <select
+                        id="officer"
+                        name="officer"
+                        className={`form-input ${formErrors.officer ? "has-error" : ""}`}
+                        value={formData.officer}
+                        onChange={handleChange}
+                      >
+                        <option value="">Select officer</option>
+                        {officerOptions.map((option) => (
+                          <option key={option} value={option}>
+                            {option}
+                          </option>
+                        ))}
+                      </select>
+                      {formErrors.officer && (
+                        <span className="form-error">{formErrors.officer}</span>
+                      )}
+                    </div>
+
+                    <div className="form-group">
+                      <label className="form-label" htmlFor="priority">
+                        Priority <span className="required-mark">*</span>
+                      </label>
+                      <select
+                        id="priority"
+                        name="priority"
+                        className={`form-input ${formErrors.priority ? "has-error" : ""}`}
+                        value={formData.priority}
+                        onChange={handleChange}
+                      >
+                        <option value="">Select priority</option>
+                        {priorityOptions.map((option) => (
+                          <option key={option} value={option}>
+                            {option}
+                          </option>
+                        ))}
+                      </select>
+                      {formErrors.priority && (
+                        <span className="form-error">
+                          {formErrors.priority}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="modal-actions">
+                    <button
+                      type="button"
+                      className="cancel-button"
+                      onClick={handleClose}
+                    >
+                      Cancel
+                    </button>
+                    <button type="submit" className="create-case-button">
+                      Create Case
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
         </main>
       </div>
     </div>
