@@ -6,6 +6,7 @@ import CasesPage from './pages/CasesPage'
 import DocumentsPage from './pages/DocumentsPage'
 import AIAssistantPage from './pages/AIAssistantPage'
 import SearchPage from './pages/SearchPage'
+import AuditLogsPage from './pages/AuditLogsPage'
 
 function App() {
   return (
@@ -19,6 +20,7 @@ function App() {
         <Route path="/documents" element={<DocumentsPage />} />
         <Route path="/ai-assistant" element={<AIAssistantPage />} />
         <Route path="/search" element={<SearchPage />} />
+        <Route path="/audit-logs" element={<AuditLogsPage />} />
       </Routes>
     </BrowserRouter>
   )
