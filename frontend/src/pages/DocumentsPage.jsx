@@ -1,4 +1,5 @@
 ﻿import { useState } from "react";
+import { NavLink } from "react-router-dom";
 import "./DocumentsPage.css";
 
 const initialDocuments = [
@@ -64,12 +65,12 @@ function DocumentsPage() {
 
       <div className="dashboard-body">
         <aside className="sidebar">
-          <a className="sidebar-item" href="#dashboard">Dashboard</a>
-          <a className="sidebar-item" href="#cases">Cases</a>
-          <a className="sidebar-item active" href="#documents">Documents</a>
-          <a className="sidebar-item" href="#ai">AI Assistant</a>
-          <a className="sidebar-item" href="#search">Search</a>
-          <a className="sidebar-item" href="#audit">Audit Logs</a>
+          <NavLink className={({ isActive }) => "sidebar-item" + (isActive ? " active" : "")} to="/dashboard">Dashboard</NavLink>
+          <NavLink className={({ isActive }) => "sidebar-item" + (isActive ? " active" : "")} to="/cases">Cases</NavLink>
+          <NavLink className={({ isActive }) => "sidebar-item" + (isActive ? " active" : "")} to="/documents">Documents</NavLink>
+          <NavLink className={({ isActive }) => "sidebar-item" + (isActive ? " active" : "")} to="/ai-assistant">AI Assistant</NavLink>
+          <NavLink className={({ isActive }) => "sidebar-item" + (isActive ? " active" : "")} to="/search">Search</NavLink>
+          <NavLink className={({ isActive }) => "sidebar-item" + (isActive ? " active" : "")} to="/audit-logs">Audit Logs</NavLink>
         </aside>
 
         <main className="main-content">

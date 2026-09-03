@@ -1,4 +1,5 @@
 ﻿import { useState } from "react";
+import { NavLink, Link } from "react-router-dom";
 import "./CasesPage.css";
 
 const initialCases = [
@@ -21,10 +22,6 @@ function CasesPage() {
 
   const handleCreateNew = () => {
     alert("Create New Case functionality will be added soon.");
-  };
-
-  const handleView = (caseItem) => {
-    alert(`Viewing details for ${caseItem.id} - ${caseItem.title}`);
   };
 
   const filteredCases = cases.filter((caseItem) => {
@@ -60,12 +57,12 @@ function CasesPage() {
 
       <div className="dashboard-body">
         <aside className="sidebar">
-          <a className="sidebar-item" href="#dashboard">Dashboard</a>
-          <a className="sidebar-item active" href="#cases">Cases</a>
-          <a className="sidebar-item" href="#documents">Documents</a>
-          <a className="sidebar-item" href="#ai">AI Assistant</a>
-          <a className="sidebar-item" href="#search">Search</a>
-          <a className="sidebar-item" href="#audit">Audit Logs</a>
+          <NavLink className={({ isActive }) => "sidebar-item" + (isActive ? " active" : "")} to="/dashboard">Dashboard</NavLink>
+          <NavLink className={({ isActive }) => "sidebar-item" + (isActive ? " active" : "")} to="/cases">Cases</NavLink>
+          <NavLink className={({ isActive }) => "sidebar-item" + (isActive ? " active" : "")} to="/documents">Documents</NavLink>
+          <NavLink className={({ isActive }) => "sidebar-item" + (isActive ? " active" : "")} to="/ai-assistant">AI Assistant</NavLink>
+          <NavLink className={({ isActive }) => "sidebar-item" + (isActive ? " active" : "")} to="/search">Search</NavLink>
+          <NavLink className={({ isActive }) => "sidebar-item" + (isActive ? " active" : "")} to="/audit-logs">Audit Logs</NavLink>
         </aside>
 
         <main className="main-content">
@@ -129,12 +126,12 @@ function CasesPage() {
                       </span>
                     </td>
                     <td>
-                      <button
+                      <Link
+                        to={`/case-details/${caseItem.id}`}
                         className="view-button"
-                        onClick={() => handleView(caseItem)}
                       >
                         View
-                      </button>
+                      </Link>
                     </td>
                   </tr>
                 ))}
