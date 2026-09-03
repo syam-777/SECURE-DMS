@@ -3,6 +3,7 @@ import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
 import DashboardPage from './pages/DashboardPage'
 import CasesPage from './pages/CasesPage'
+import DocumentsPage from './pages/DocumentsPage'
 
 function App() {
   return (
@@ -13,6 +14,7 @@ function App() {
         <Route path="/register" element={<RegisterPage />} />
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/cases" element={<CasesPage />} />
+        <Route path="/documents" element={<DocumentsPage />} />
       </Routes>
     </BrowserRouter>
   )
