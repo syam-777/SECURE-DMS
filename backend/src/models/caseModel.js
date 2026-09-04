@@ -247,6 +247,117 @@ async function findAllCases({
 }
 
 /**
+ * Safe sort columns for the Phase 8 search API. Anything not on this
+ * list is rejected so no arbitrary (or unsafe) SQL column can be
+ * injected.
+ */
+const SEARCH_SORTABLE_COLUMNS = [
+  "id",
+  "case_number",
+  "title",
+  "case_type",
+  "status",
+  "priority",
+  "created_at",
+  "updated_at",
+];
+
+/**
+ * Phase 8 search API. Same safe pattern as findAllCases but searches
+ * across case_number, title, description and case_type with optional
+ * status/priority/caseType filters. Fully parameterized; never returns
+ * password_hash.
+ * @param {{
+ *   page?: number,
+ *   limit?: number,
+ *   q?: string,
+ *   status?: string,
+ *   priority?: string,
+ *   caseType?: string,
+ *   sort?: string,
+ *   order?: string
+ * }} opts
+ * @returns {Promise<{ cases: object[], total: number, page: number, limit: number, totalPages: number }>}
+ */
+async function searchCases({
+  page = 1,
+  limit = 20,
+  q = "",
+  status = "",
+  priority = "",
+  caseType = "",
+  sort = "id",
+  order = "asc",
+} = {}) {
+  const safePage = Math.max(1, Number(page) || 1);
+  const safeLimit = Math.min(100, Math.max(1, Number(limit) || 20));
+  const offset = (safePage - 1) * safeLimit;
+
+  const where = [];
+  const params = [];
+
+  if (q && String(q).trim()) {
+    where.push(
+      "(c.case_number LIKE ? OR c.title LIKE ? OR c.description LIKE ? " +
+        "OR c.case_type LIKE ?)"
+    );
+    const like = `%${String(q).trim()}%`;
+    params.push(like, like, like, like);
+  }
+  if (status && isValidStatus(status)) {
+    where.push("c.status = ?");
+    params.push(status);
+  }
+  if (priority && isValidPriority(priority)) {
+    where.push("c.priority = ?");
+    params.push(priority);
+  }
+  if (caseType && String(caseType).trim()) {
+    where.push("c.case_type = ?");
+    params.push(String(caseType).trim());
+  }
+
+  const whereSql = where.length ? "WHERE " + where.join(" AND ") : "";
+
+  const sortCol = SEARCH_SORTABLE_COLUMNS.includes(sort) ? sort : "id";
+  const orderDir = String(order).toLowerCase() === "desc" ? "DESC" : "ASC";
+
+  const [countResult] = await pool.query(
+    "SELECT COUNT(*) AS total FROM cases c " +
+      "LEFT JOIN users creator ON creator.id = c.created_by " +
+      "LEFT JOIN users assignee ON assignee.id = c.assigned_to " +
+      whereSql,
+    params
+  );
+  const total = countResult[0].total;
+
+  const [rows] = await pool.query(
+    "SELECT c.id, c.case_number, c.title, c.case_type, c.description, " +
+      "c.status, c.priority, c.created_by, c.assigned_to, " +
+      "c.created_at, c.updated_at, " +
+      "creator.full_name AS creator_name, " +
+      "creator.username AS creator_username, " +
+      "assignee.full_name AS assignee_name, " +
+      "assignee.username AS assignee_username, " +
+      "(SELECT COUNT(*) FROM case_assignments ca WHERE ca.case_id = c.id) AS assignments_count " +
+      "FROM cases c " +
+      "LEFT JOIN users creator ON creator.id = c.created_by " +
+      "LEFT JOIN users assignee ON assignee.id = c.assigned_to " +
+      whereSql +
+      ` ORDER BY c.${sortCol} ${orderDir}, c.id ASC LIMIT ? OFFSET ?`,
+    [...params, safeLimit, offset]
+  );
+
+  return {
+    cases: rows,
+    total,
+    page: safePage,
+    limit: safeLimit,
+    totalPages: Math.ceil(total / safeLimit),
+  };
+}
+
+/**
  * Update editable case fields. `id`, `case_number`, `created_by`, and
  * `created_at` are intentionally never modified here.
  * @param {number|string} id
@@ -404,6 +515,7 @@ module.exports = {
   generateCaseNumber,
   createCase,
   findAllCases,
+  searchCases,
   updateCase,
   updateCaseStatus,
   deleteCase,

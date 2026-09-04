@@ -295,6 +295,116 @@ async function softDeleteDocument(id) {
   return result.affectedRows > 0;
 }
 
+/**
+ * Safe sort columns for the Phase 8 document search API. Anything not
+ * on this list is rejected so no arbitrary (or unsafe) SQL column can
+ * be injected.
+ */
+const SEARCH_SORTABLE_COLUMNS = [
+  "id",
+  "title",
+  "document_type",
+  "status",
+  "case_id",
+  "current_version",
+  "created_at",
+  "updated_at",
+];
+
+/**
+ * Phase 8 search API for documents. Same safe pattern as
+ * findAllDocuments but additionally searches original_file_name (via a
+ * correlated EXISTS on document_versions so multi-version documents
+ * return exactly one row) and the related case_number. Selects only
+ * public metadata — never file_path or stored_file_name. Fully
+ * parameterized.
+ * @param {{
+ *   page?: number,
+ *   limit?: number,
+ *   q?: string,
+ *   status?: string,
+ *   documentType?: string,
+ *   caseId?: number|string,
+ *   sort?: string,
+ *   order?: string
+ * }} opts
+ * @returns {Promise<{ documents: object[], total: number, page: number, limit: number, totalPages: number }>}
+ */
+async function searchDocuments({
+  page = 1,
+  limit = 20,
+  q = "",
+  status = "",
+  documentType = "",
+  caseId = "",
+  sort = "id",
+  order = "asc",
+} = {}) {
+  const safePage = Math.max(1, Number(page) || 1);
+  const safeLimit = Math.min(100, Math.max(1, Number(limit) || 20));
+  const offset = (safePage - 1) * safeLimit;
+
+  const where = [];
+  const params = [];
+
+  if (q && String(q).trim()) {
+    where.push(
+      "(d.title LIKE ? OR d.description LIKE ? OR d.document_type LIKE ? " +
+        "OR c.case_number LIKE ? OR EXISTS (SELECT 1 FROM document_versions dv " +
+        "WHERE dv.document_id = d.id AND dv.original_file_name LIKE ?))"
+    );
+    const like = `%${String(q).trim()}%`;
+    params.push(like, like, like, like, like);
+  }
+  if (status && isValidDocumentStatus(status)) {
+    where.push("d.status = ?");
+    params.push(status);
+  }
+  if (documentType && String(documentType).trim()) {
+    where.push("d.document_type = ?");
+    params.push(String(documentType).trim());
+  }
+  if (caseId && Number(caseId) > 0) {
+    where.push("d.case_id = ?");
+    params.push(Number(caseId));
+  }
+
+  const whereSql = where.length ? "WHERE " + where.join(" AND ") : "";
+
+  const sortCol = SEARCH_SORTABLE_COLUMNS.includes(sort) ? sort : "id";
+  const orderDir = String(order).toLowerCase() === "desc" ? "DESC" : "ASC";
+
+  const [countResult] = await pool.query(
+    "SELECT COUNT(*) AS total FROM documents d " +
+      "LEFT JOIN cases c ON c.id = d.case_id " +
+      whereSql,
+    params
+  );
+  const total = countResult[0].total;
+
+  const [rows] = await pool.query(
+    "SELECT d.id, d.case_id, d.title, d.description, d.document_type, " +
+      "d.status, d.current_version, d.uploaded_by, " +
+      "d.created_at, d.updated_at, " +
+      "c.case_number AS case_number, " +
+      "u.username AS uploader_username, u.full_name AS uploader_name " +
+      "FROM documents d " +
+      "LEFT JOIN cases c ON c.id = d.case_id " +
+      "LEFT JOIN users u ON u.id = d.uploaded_by " +
+      whereSql +
+      ` ORDER BY d.${sortCol} ${orderDir}, d.id ASC LIMIT ? OFFSET ?`,
+    [...params, safeLimit, offset]
+  );
+
+  return {
+    documents: rows,
+    total,
+    page: safePage,
+    limit: safeLimit,
+    totalPages: Math.ceil(total / safeLimit),
+  };
+}
+
 module.exports = {
   UPLOAD_DIR,
   MAX_FILE_SIZE,
@@ -309,6 +419,7 @@ module.exports = {
   findDocumentVersion,
   findVersionsByDocument,
   findAllDocuments,
+  searchDocuments,
   createDocument,
   createVersion,
   softDeleteDocument,

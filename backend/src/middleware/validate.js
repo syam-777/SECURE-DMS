@@ -381,6 +381,98 @@ const uploadDocumentValidators = [
     .withMessage("caseId must be a positive integer"),
 ];
 
+// ─── Phase 8 search validators ────────────────────────────────
+const SEARCH_SORT_PATTERN = /^[A-Za-z_]+$/;
+
+const caseSearchValidators = [
+  query("q")
+    .optional()
+    .trim()
+    .isString()
+    .isLength({ max: 100 })
+    .withMessage("q must be a string up to 100 characters"),
+  query("status")
+    .optional()
+    .trim()
+    .toLowerCase()
+    .isIn(CASE_STATUSES)
+    .withMessage("status must be one of: " + CASE_STATUSES.join(", ")),
+  query("priority")
+    .optional()
+    .trim()
+    .toLowerCase()
+    .isIn(CASE_PRIORITIES)
+    .withMessage("priority must be one of: " + CASE_PRIORITIES.join(", ")),
+  query("caseType")
+    .optional()
+    .trim()
+    .isLength({ max: 50 })
+    .withMessage("caseType must be 50 characters or fewer"),
+  query("page")
+    .optional()
+    .isInt({ min: 1 })
+    .withMessage("page must be a positive integer"),
+  query("limit")
+    .optional()
+    .isInt({ min: 1, max: 100 })
+    .withMessage("limit must be between 1 and 100"),
+  query("sort")
+    .optional()
+    .trim()
+    .matches(SEARCH_SORT_PATTERN)
+    .withMessage("sort must contain only letters and underscores"),
+  query("order")
+    .optional()
+    .trim()
+    .toLowerCase()
+    .isIn(["asc", "desc"])
+    .withMessage("order must be 'asc' or 'desc'"),
+];
+
+const documentSearchValidators = [
+  query("q")
+    .optional()
+    .trim()
+    .isString()
+    .isLength({ max: 100 })
+    .withMessage("q must be a string up to 100 characters"),
+  query("status")
+    .optional()
+    .trim()
+    .toLowerCase()
+    .isIn(DOCUMENT_STATUSES)
+    .withMessage("status must be one of: " + DOCUMENT_STATUSES.join(", ")),
+  query("documentType")
+    .optional()
+    .trim()
+    .isLength({ max: 50 })
+    .withMessage("documentType must be 50 characters or fewer"),
+  query("caseId")
+    .optional()
+    .trim()
+    .isInt({ min: 1 })
+    .withMessage("caseId must be a positive integer"),
+  query("page")
+    .optional()
+    .isInt({ min: 1 })
+    .withMessage("page must be a positive integer"),
+  query("limit")
+    .optional()
+    .isInt({ min: 1, max: 100 })
+    .withMessage("limit must be between 1 and 100"),
+  query("sort")
+    .optional()
+    .trim()
+    .matches(SEARCH_SORT_PATTERN)
+    .withMessage("sort must contain only letters and underscores"),
+  query("order")
+    .optional()
+    .trim()
+    .toLowerCase()
+    .isIn(["asc", "desc"])
+    .withMessage("order must be 'asc' or 'desc'"),
+];
+
 module.exports = {
   registerValidators,
   loginValidators,
@@ -401,4 +493,6 @@ module.exports = {
   documentVersionParamValidator,
   documentListValidators,
   uploadDocumentValidators,
+  caseSearchValidators,
+  documentSearchValidators,
 };
