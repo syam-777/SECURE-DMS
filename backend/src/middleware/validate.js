@@ -174,6 +174,136 @@ const paginationValidators = [
     .withMessage("search must be a string up to 100 characters"),
 ];
 
+// ─── Case management validators ───────────────────────────────
+const CASE_STATUSES = ["open", "in_progress", "under_review", "closed", "archived"];
+const CASE_PRIORITIES = ["low", "medium", "high", "critical"];
+
+const createCaseValidators = [
+  body("title")
+    .trim()
+    .notEmpty()
+    .withMessage("title is required")
+    .isLength({ max: 255 })
+    .withMessage("title must be 255 characters or fewer"),
+  body("caseType")
+    .optional({ nullable: true })
+    .trim()
+    .isLength({ max: 50 })
+    .withMessage("caseType must be 50 characters or fewer"),
+  body("description")
+    .optional({ nullable: true })
+    .trim()
+    .isLength({ max: 5000 })
+    .withMessage("description must be 5000 characters or fewer"),
+  body("priority")
+    .optional()
+    .trim()
+    .toLowerCase()
+    .isIn(CASE_PRIORITIES)
+    .withMessage("priority must be one of: " + CASE_PRIORITIES.join(", ")),
+];
+
+const updateCaseValidators = [
+  param("id")
+    .isInt({ min: 1 })
+    .withMessage("Case ID must be a positive integer"),
+  body("title")
+    .optional()
+    .trim()
+    .notEmpty()
+    .withMessage("title cannot be empty")
+    .isLength({ max: 255 })
+    .withMessage("title must be 255 characters or fewer"),
+  body("caseType")
+    .optional({ nullable: true })
+    .trim()
+    .isLength({ max: 50 })
+    .withMessage("caseType must be 50 characters or fewer"),
+  body("description")
+    .optional({ nullable: true })
+    .trim()
+    .isLength({ max: 5000 })
+    .withMessage("description must be 5000 characters or fewer"),
+  body("priority")
+    .optional()
+    .trim()
+    .toLowerCase()
+    .isIn(CASE_PRIORITIES)
+    .withMessage("priority must be one of: " + CASE_PRIORITIES.join(", ")),
+];
+
+const caseIdParamValidator = [
+  param("id")
+    .isInt({ min: 1 })
+    .withMessage("Case ID must be a positive integer"),
+];
+
+const updateCaseStatusValidators = [
+  param("id")
+    .isInt({ min: 1 })
+    .withMessage("Case ID must be a positive integer"),
+  body("status")
+    .trim()
+    .toLowerCase()
+    .notEmpty()
+    .withMessage("status is required")
+    .isIn(CASE_STATUSES)
+    .withMessage("status must be one of: " + CASE_STATUSES.join(", ")),
+];
+
+const caseListValidators = [
+  ...paginationValidators,
+  query("status")
+    .optional()
+    .trim()
+    .toLowerCase()
+    .isIn(CASE_STATUSES)
+    .withMessage("status must be one of: " + CASE_STATUSES.join(", ")),
+  query("priority")
+    .optional()
+    .trim()
+    .toLowerCase()
+    .isIn(CASE_PRIORITIES)
+    .withMessage("priority must be one of: " + CASE_PRIORITIES.join(", ")),
+  query("sort")
+    .optional()
+    .trim()
+    .matches(/^[A-Za-z_]+$/)
+    .withMessage("sort must contain only letters and underscores"),
+  query("order")
+    .optional()
+    .trim()
+    .toLowerCase()
+    .isIn(["asc", "desc"])
+    .withMessage("order must be 'asc' or 'desc'"),
+];
+
+const createAssignmentValidators = [
+  param("id")
+    .isInt({ min: 1 })
+    .withMessage("Case ID must be a positive integer"),
+  body("userId")
+    .isInt({ min: 1 })
+    .withMessage("userId must be a positive integer"),
+  body("assignmentRole")
+    .trim()
+    .notEmpty()
+    .withMessage("assignmentRole is required")
+    .isLength({ max: 50 })
+    .withMessage("assignmentRole must be 50 characters or fewer")
+    .matches(/^[a-z_]+$/)
+    .withMessage("assignmentRole may only contain lowercase letters and underscores"),
+];
+
+const deleteAssignmentValidators = [
+  param("id")
+    .isInt({ min: 1 })
+    .withMessage("Case ID must be a positive integer"),
+  param("userId")
+    .isInt({ min: 1 })
+    .withMessage("User ID must be a positive integer"),
+];
+
 module.exports = {
   registerValidators,
   loginValidators,
@@ -183,4 +313,11 @@ module.exports = {
   changeRoleValidators,
   updatePermissionsValidators,
   paginationValidators,
+  createCaseValidators,
+  updateCaseValidators,
+  caseIdParamValidator,
+  updateCaseStatusValidators,
+  caseListValidators,
+  createAssignmentValidators,
+  deleteAssignmentValidators,
 };

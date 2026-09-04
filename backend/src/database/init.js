@@ -149,7 +149,30 @@ async function initializeDatabase() {
     }
 
     // ------------------------------------------------------------------
-    // 6. Verify — list all tables in the database
+    // 6. Reconcile the `cases` table — add the `case_type` column when
+    //    missing (idempotent). CASE_TYPE VARCHAR(50), nullable, placed
+    //    after `title`. Does not destroy existing columns or data.
+    // ------------------------------------------------------------------
+    console.log("🛠  Verifying cases table compatibility...");
+    const caseCols = await connection.query(
+      "SELECT COLUMN_NAME FROM information_schema.COLUMNS " +
+        "WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'cases'",
+      [dbName]
+    );
+    const caseColumnNames = caseCols[0].map((r) => r.COLUMN_NAME);
+
+    if (!caseColumnNames.includes("case_type")) {
+      console.log("   ➕ Adding case_type column to existing cases table");
+      await connection.query(
+        "ALTER TABLE cases ADD COLUMN case_type VARCHAR(50) NULL AFTER title"
+      );
+      console.log("   ✔ Added cases.case_type column");
+    } else {
+      console.log("   ℹ  cases.case_type already present — skipping");
+    }
+
+    // ------------------------------------------------------------------
+    // 7. Verify — list all tables in the database
     // ------------------------------------------------------------------
     const [rows] = await connection.query("SHOW TABLES");
     const tableNames = rows.map((r) => Object.values(r)[0]);

@@ -103,6 +103,7 @@ CREATE TABLE IF NOT EXISTS cases (
     id           INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     case_number  VARCHAR(50)  NOT NULL UNIQUE,
     title        VARCHAR(255) NOT NULL,
+    case_type    VARCHAR(50),
     description  TEXT,
     status       ENUM('open','in_progress','under_review','closed','archived')
                            NOT NULL DEFAULT 'open',
