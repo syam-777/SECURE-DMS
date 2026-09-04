@@ -304,6 +304,74 @@ const deleteAssignmentValidators = [
     .withMessage("User ID must be a positive integer"),
 ];
 
+// ─── Document management validators ───────────────────────────
+const DOCUMENT_STATUSES = ["active", "archived", "deleted"];
+
+const documentIdParamValidator = [
+  param("id")
+    .isInt({ min: 1 })
+    .withMessage("Document ID must be a positive integer"),
+];
+
+const documentListValidators = [
+  ...paginationValidators,
+  query("status")
+    .optional()
+    .trim()
+    .toLowerCase()
+    .isIn(DOCUMENT_STATUSES)
+    .withMessage("status must be one of: " + DOCUMENT_STATUSES.join(", ")),
+  query("documentType")
+    .optional()
+    .trim()
+    .isLength({ max: 50 })
+    .withMessage("documentType must be 50 characters or fewer"),
+  query("caseId")
+    .optional()
+    .trim()
+    .isInt({ min: 1 })
+    .withMessage("caseId must be a positive integer"),
+  query("sort")
+    .optional()
+    .trim()
+    .matches(/^[A-Za-z_]+$/)
+    .withMessage("sort must contain only letters and underscores"),
+  query("order")
+    .optional()
+    .trim()
+    .toLowerCase()
+    .isIn(["asc", "desc"])
+    .withMessage("order must be 'asc' or 'desc'"),
+];
+
+const uploadDocumentValidators = [
+  body("title")
+    .trim()
+    .notEmpty()
+    .withMessage("title is required")
+    .isLength({ max: 255 })
+    .withMessage("title must be 255 characters or fewer"),
+  body("description")
+    .optional({ nullable: true })
+    .trim()
+    .isLength({ max: 5000 })
+    .withMessage("description must be 5000 characters or fewer"),
+  body("documentType")
+    .optional({ nullable: true })
+    .trim()
+    .isLength({ max: 50 })
+    .withMessage("documentType must be 50 characters or fewer"),
+  body("caseId")
+    .optional({ nullable: true })
+    .trim()
+    .custom((value) => {
+      if (value === "") return true;
+      const num = Number(value);
+      return Number.isInteger(num) && num >= 1;
+    })
+    .withMessage("caseId must be a positive integer"),
+];
+
 module.exports = {
   registerValidators,
   loginValidators,
@@ -320,4 +388,7 @@ module.exports = {
   caseListValidators,
   createAssignmentValidators,
   deleteAssignmentValidators,
+  documentIdParamValidator,
+  documentListValidators,
+  uploadDocumentValidators,
 };
