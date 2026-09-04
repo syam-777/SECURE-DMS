@@ -4,6 +4,8 @@ const helmet = require("helmet");
 
 const { notFoundHandler, errorHandler } = require("./middleware/errorHandler");
 const authRoutes = require("./routes/authRoutes");
+const userRoutes = require("./routes/userRoutes");
+const roleRoutes = require("./routes/roleRoutes");
 
 const app = express();
 
@@ -18,6 +20,8 @@ app.get("/", (req, res) => {
 });
 
 app.use("/api/auth", authRoutes);
+app.use("/api/users", userRoutes);
+app.use("/api/roles", roleRoutes);
 
 app.use(notFoundHandler);
 app.use(errorHandler);
