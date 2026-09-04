@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 const { pool } = require("../config/database");
 
 const UPLOAD_DIR = path.join(__dirname, "..", "..", "uploads", "documents");
@@ -63,6 +64,16 @@ function safeDocumentPath(storedFileName) {
   return resolved;
 }
 
+function sha256File(filePath) {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash("sha256");
+    const stream = fs.createReadStream(filePath);
+    stream.on("error", reject);
+    stream.on("data", (chunk) => hash.update(chunk));
+    stream.on("end", () => resolve(hash.digest("hex")));
+  });
+}
+
 async function findDocumentById(id) {
   const [rows] = await pool.query(
     "SELECT d.id, d.case_id, d.title, d.description, d.document_type, " +
@@ -80,12 +91,29 @@ async function findDocumentVersion(documentId, versionNumber) {
   const [rows] = await pool.query(
     "SELECT dv.id, dv.document_id, dv.version_number, dv.file_path, " +
       "dv.original_file_name, dv.stored_file_name, dv.mime_type, " +
-      "dv.file_size, dv.checksum, dv.uploaded_by, dv.created_at " +
+      "dv.file_size, dv.checksum, dv.uploaded_by, dv.created_at, " +
+      "u.username AS uploader_username, u.full_name AS uploader_name " +
       "FROM document_versions dv " +
+      "LEFT JOIN users u ON u.id = dv.uploaded_by " +
       "WHERE dv.document_id = ? AND dv.version_number = ? LIMIT 1",
     [documentId, versionNumber]
   );
   return rows[0] || null;
+}
+
+async function findVersionsByDocument(documentId) {
+  const [rows] = await pool.query(
+    "SELECT dv.id, dv.document_id, dv.version_number, " +
+      "dv.original_file_name, dv.mime_type, dv.file_size, dv.checksum, " +
+      "dv.uploaded_by, dv.created_at, " +
+      "u.username AS uploader_username, u.full_name AS uploader_name " +
+      "FROM document_versions dv " +
+      "LEFT JOIN users u ON u.id = dv.uploaded_by " +
+      "WHERE dv.document_id = ? " +
+      "ORDER BY dv.version_number DESC",
+    [documentId]
+  );
+  return rows;
 }
 
 async function findAllDocuments({
@@ -181,8 +209,8 @@ async function createDocument(data) {
     const [versionResult] = await connection.query(
       "INSERT INTO document_versions " +
         "(document_id, version_number, file_path, original_file_name, " +
-        "stored_file_name, mime_type, file_size, uploaded_by) " +
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "stored_file_name, mime_type, file_size, checksum, uploaded_by) " +
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
       [
         documentId,
         1,
@@ -191,12 +219,66 @@ async function createDocument(data) {
         data.storedFileName,
         data.mimeType,
         data.fileSize,
+        data.checksum != null ? data.checksum : null,
         data.uploadedBy,
       ]
     );
 
     await connection.commit();
     return { documentId, versionId: versionResult.insertId };
+  } catch (err) {
+    await connection.rollback();
+    throw err;
+  } finally {
+    connection.release();
+  }
+}
+
+async function createVersion(data) {
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+
+    const [docRows] = await connection.query(
+      "SELECT current_version FROM documents WHERE id = ? FOR UPDATE",
+      [data.documentId]
+    );
+    if (!docRows[0]) {
+      await connection.rollback();
+      const err = new Error("Document not found");
+      err.statusCode = 404;
+      err.expose = true;
+      throw err;
+    }
+
+    const nextVersion = Number(docRows[0].current_version) + 1;
+
+    const [versionResult] = await connection.query(
+      "INSERT INTO document_versions " +
+        "(document_id, version_number, file_path, original_file_name, " +
+        "stored_file_name, mime_type, file_size, checksum, uploaded_by) " +
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      [
+        data.documentId,
+        nextVersion,
+        data.storedFileName,
+        data.originalFileName,
+        data.storedFileName,
+        data.mimeType,
+        data.fileSize,
+        data.checksum != null ? data.checksum : null,
+        data.uploadedBy,
+      ]
+    );
+
+    await connection.query(
+      "UPDATE documents SET current_version = ?, updated_at = CURRENT_TIMESTAMP " +
+        "WHERE id = ?",
+      [nextVersion, data.documentId]
+    );
+
+    await connection.commit();
+    return { versionId: versionResult.insertId, versionNumber: nextVersion };
   } catch (err) {
     await connection.rollback();
     throw err;
@@ -222,9 +304,12 @@ module.exports = {
   isAllowedMimeType,
   isValidDocumentStatus,
   safeDocumentPath,
+  sha256File,
   findDocumentById,
   findDocumentVersion,
+  findVersionsByDocument,
   findAllDocuments,
   createDocument,
+  createVersion,
   softDeleteDocument,
 };

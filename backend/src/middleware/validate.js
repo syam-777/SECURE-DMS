@@ -313,6 +313,15 @@ const documentIdParamValidator = [
     .withMessage("Document ID must be a positive integer"),
 ];
 
+const documentVersionParamValidator = [
+  param("id")
+    .isInt({ min: 1 })
+    .withMessage("Document ID must be a positive integer"),
+  param("versionNumber")
+    .isInt({ min: 1 })
+    .withMessage("versionNumber must be a positive integer"),
+];
+
 const documentListValidators = [
   ...paginationValidators,
   query("status")
@@ -389,6 +398,7 @@ module.exports = {
   createAssignmentValidators,
   deleteAssignmentValidators,
   documentIdParamValidator,
+  documentVersionParamValidator,
   documentListValidators,
   uploadDocumentValidators,
 };

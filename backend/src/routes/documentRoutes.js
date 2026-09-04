@@ -10,10 +10,16 @@ const {
   uploadDocument,
   downloadDocument,
   deleteDocument,
+  createNewVersion,
+  listVersions,
+  getVersion,
+  downloadVersion,
+  verifyVersionIntegrity,
 } = require("../controllers/documentController");
 const { authenticate, authorize } = require("../middleware/authMiddleware");
 const {
   documentIdParamValidator,
+  documentVersionParamValidator,
   documentListValidators,
   uploadDocumentValidators,
   validateRequest,
@@ -23,6 +29,7 @@ const {
   MAX_FILE_SIZE,
   isAllowedMimeType,
   getExtensionForMime,
+  findDocumentById,
 } = require("../models/documentModel");
 
 const fs = require("fs");
@@ -118,6 +125,56 @@ async function handleDocumentUpload(req, res, next) {
   }
 }
 
+// ─── Combined version-upload handler ──────────────────────────
+// Verifies the document BEFORE multer stores the file (so we never
+// leave an orphaned upload), then runs multer and the controller.
+async function handleVersionUpload(req, res, next) {
+  try {
+    // Step 1: Verify the document exists and is not deleted
+    const document = await findDocumentById(req.params.id);
+    if (!document) {
+      throw httpError(404, "Document not found");
+    }
+    if (document.status === "deleted") {
+      throw httpError(400, "Cannot add versions to a deleted document");
+    }
+
+    // Step 2: Run multer
+    await new Promise((resolve, reject) => {
+      upload.single("file")(req, res, (err) => {
+        if (err) reject(err);
+        else resolve();
+      });
+    }).catch((multerErr) => {
+      const msg =
+        multerErr.code === "LIMIT_FILE_SIZE"
+          ? "File too large. Maximum size is 10 MB."
+          : multerErr.code === "LIMIT_UNEXPECTED_FILE"
+            ? "Unexpected file field"
+            : multerErr.message || "File upload error";
+      throw httpError(400, msg);
+    });
+
+    // Step 3: Handle rejected file type
+    if (!req.file && req._fileRejected) {
+      throw httpError(
+        400,
+        "Unsupported file type. Accepted formats: PDF, DOC, DOCX, XLS, XLSX, TXT, JPG, PNG"
+      );
+    }
+
+    // Step 4: Handle missing file
+    if (!req.file) {
+      throw httpError(400, "No file uploaded. Please provide a file.");
+    }
+
+    // Step 5: All good — call the controller
+    return createNewVersion(req, res, next);
+  } catch (err) {
+    return next(err);
+  }
+}
+
 // All document routes require authentication.
 router.use(authenticate);
 
@@ -162,6 +219,51 @@ router.delete(
   documentIdParamValidator,
   validateRequest,
   deleteDocument
+);
+
+// POST /api/documents/:id/versions — upload a new document version
+router.post(
+  "/:id/versions",
+  authorize("documents:write", "versions:create"),
+  documentIdParamValidator,
+  validateRequest,
+  handleVersionUpload
+);
+
+// GET /api/documents/:id/versions — list all versions (newest first)
+router.get(
+  "/:id/versions",
+  authorize("documents:read", "versions:read"),
+  documentIdParamValidator,
+  validateRequest,
+  listVersions
+);
+
+// GET /api/documents/:id/versions/:versionNumber — get one version's metadata
+router.get(
+  "/:id/versions/:versionNumber",
+  authorize("documents:read", "versions:read"),
+  documentVersionParamValidator,
+  validateRequest,
+  getVersion
+);
+
+// GET /api/documents/:id/versions/:versionNumber/download — download a version file
+router.get(
+  "/:id/versions/:versionNumber/download",
+  authorize("documents:download", "versions:read"),
+  documentVersionParamValidator,
+  validateRequest,
+  downloadVersion
+);
+
+// GET /api/documents/:id/versions/:versionNumber/verify — verify SHA-256 integrity
+router.get(
+  "/:id/versions/:versionNumber/verify",
+  authorize("documents:read", "versions:read"),
+  documentVersionParamValidator,
+  validateRequest,
+  verifyVersionIntegrity
 );
 
 module.exports = router;

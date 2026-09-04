@@ -3,10 +3,13 @@ const { logAuditEvent } = require("../models/auditLogModel");
 const { findCaseNumberById } = require("../models/caseModel");
 const {
   safeDocumentPath,
+  sha256File,
   findDocumentById,
   findDocumentVersion,
+  findVersionsByDocument,
   findAllDocuments,
   createDocument,
+  createVersion,
   softDeleteDocument,
 } = require("../models/documentModel");
 
@@ -19,6 +22,12 @@ function httpError(statusCode, message) {
 
 function cleanupFile(filePath) {
   fs.unlink(filePath, () => {});
+}
+
+function safeVersion(version) {
+  if (!version) return null;
+  const { file_path, stored_file_name, ...rest } = version;
+  return rest;
 }
 
 // ─── GET /api/documents ──────────────────────────────────────
@@ -97,6 +106,7 @@ async function uploadDocument(req, res, next) {
 
     let result;
     try {
+      const checksum = await sha256File(req.file.path);
       result = await createDocument({
         caseId: resolvedCaseId,
         title: title.trim(),
@@ -109,6 +119,7 @@ async function uploadDocument(req, res, next) {
         storedFileName: req.file.filename,
         mimeType: req.file.mimetype,
         fileSize: req.file.size,
+        checksum,
       });
     } catch (dbErr) {
       cleanupFile(req.file.path);
@@ -227,10 +238,227 @@ async function deleteDocument(req, res, next) {
   }
 }
 
+// ─── POST /api/documents/:id/versions ─────────────────────────
+async function createNewVersion(req, res, next) {
+  try {
+    if (!req.file) {
+      throw httpError(400, "No file uploaded. Please provide a file.");
+    }
+
+    const docId = req.params.id;
+    const document = await findDocumentById(docId);
+    if (!document) {
+      cleanupFile(req.file.path);
+      throw httpError(404, "Document not found");
+    }
+    if (document.status === "deleted") {
+      cleanupFile(req.file.path);
+      throw httpError(400, "Cannot add versions to a deleted document");
+    }
+
+    let result;
+    try {
+      const checksum = await sha256File(req.file.path);
+      result = await createVersion({
+        documentId: Number(docId),
+        originalFileName: req.file.originalname,
+        storedFileName: req.file.filename,
+        mimeType: req.file.mimetype,
+        fileSize: req.file.size,
+        checksum,
+        uploadedBy: req.user.id,
+      });
+    } catch (dbErr) {
+      cleanupFile(req.file.path);
+      throw dbErr;
+    }
+
+    await logAuditEvent({
+      userId: req.user.id,
+      action: "VERSION_CREATED",
+      resourceType: "document",
+      resourceId: Number(docId),
+      ipAddress: req.ip,
+      userAgent: req.get("user-agent"),
+      details: {
+        versionNumber: result.versionNumber,
+        originalFileName: req.file.originalname,
+        mimeType: req.file.mimetype,
+        fileSize: req.file.size,
+      },
+    });
+
+    const version = await findDocumentVersion(docId, result.versionNumber);
+
+    return res.status(201).json({
+      success: true,
+      message: "New document version created",
+      version: safeVersion(version),
+    });
+  } catch (err) {
+    return next(err);
+  }
+}
+
+// ─── GET /api/documents/:id/versions ──────────────────────────
+async function listVersions(req, res, next) {
+  try {
+    const docId = req.params.id;
+    const document = await findDocumentById(docId);
+    if (!document) {
+      throw httpError(404, "Document not found");
+    }
+
+    const versions = await findVersionsByDocument(docId);
+
+    return res.json({
+      success: true,
+      documentId: Number(docId),
+      versions,
+    });
+  } catch (err) {
+    return next(err);
+  }
+}
+
+// ─── GET /api/documents/:id/versions/:versionNumber ───────────
+async function getVersion(req, res, next) {
+  try {
+    const docId = req.params.id;
+    const versionNumber = req.params.versionNumber;
+
+    const document = await findDocumentById(docId);
+    if (!document) {
+      throw httpError(404, "Document not found");
+    }
+
+    const version = await findDocumentVersion(docId, versionNumber);
+    if (!version) {
+      throw httpError(404, "Document version not found");
+    }
+
+    return res.json({
+      success: true,
+      documentId: Number(docId),
+      version: safeVersion(version),
+    });
+  } catch (err) {
+    return next(err);
+  }
+}
+
+// ─── GET /api/documents/:id/versions/:versionNumber/download ──
+async function downloadVersion(req, res, next) {
+  try {
+    const docId = req.params.id;
+    const versionNumber = req.params.versionNumber;
+
+    const document = await findDocumentById(docId);
+    if (!document) {
+      throw httpError(404, "Document not found");
+    }
+    if (document.status === "deleted") {
+      throw httpError(404, "Document not found");
+    }
+
+    const version = await findDocumentVersion(docId, versionNumber);
+    if (!version) {
+      throw httpError(404, "Document version not found");
+    }
+
+    const filePath = safeDocumentPath(version.stored_file_name);
+    if (!filePath) {
+      throw httpError(400, "Invalid file path");
+    }
+
+    if (!fs.existsSync(filePath)) {
+      throw httpError(404, "Physical file not found on server");
+    }
+
+    await logAuditEvent({
+      userId: req.user.id,
+      action: "VERSION_DOWNLOADED",
+      resourceType: "document",
+      resourceId: Number(docId),
+      ipAddress: req.ip,
+      userAgent: req.get("user-agent"),
+      details: {
+        versionNumber: Number(versionNumber),
+        originalFileName: version.original_file_name,
+      },
+    });
+
+    return res.download(filePath, version.original_file_name);
+  } catch (err) {
+    return next(err);
+  }
+}
+
+// ─── GET /api/documents/:id/versions/:versionNumber/verify ────
+async function verifyVersionIntegrity(req, res, next) {
+  try {
+    const docId = req.params.id;
+    const versionNumber = req.params.versionNumber;
+
+    const document = await findDocumentById(docId);
+    if (!document) {
+      throw httpError(404, "Document not found");
+    }
+
+    const version = await findDocumentVersion(docId, versionNumber);
+    if (!version) {
+      throw httpError(404, "Document version not found");
+    }
+
+    const filePath = safeDocumentPath(version.stored_file_name);
+    if (!filePath) {
+      throw httpError(400, "Invalid file path");
+    }
+
+    if (!fs.existsSync(filePath)) {
+      throw httpError(404, "Physical file not found on server");
+    }
+
+    const calculatedChecksum = await sha256File(filePath);
+    const storedChecksum = version.checksum || null;
+    const integrityValid =
+      storedChecksum != null && calculatedChecksum === storedChecksum;
+
+    await logAuditEvent({
+      userId: req.user.id,
+      action: "VERSION_INTEGRITY_VERIFIED",
+      resourceType: "document",
+      resourceId: Number(docId),
+      ipAddress: req.ip,
+      userAgent: req.get("user-agent"),
+      details: {
+        versionNumber: Number(versionNumber),
+        integrityValid,
+      },
+    });
+
+    return res.json({
+      success: true,
+      documentId: Number(docId),
+      versionNumber: Number(versionNumber),
+      storedChecksum,
+      calculatedChecksum,
+      integrityValid,
+    });
+  } catch (err) {
+    return next(err);
+  }
+}
+
 module.exports = {
   listDocuments,
   getDocumentById,
   uploadDocument,
   downloadDocument,
   deleteDocument,
+  createNewVersion,
+  listVersions,
+  getVersion,
+  downloadVersion,
+  verifyVersionIntegrity,
 };
