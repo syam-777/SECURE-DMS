@@ -140,4 +140,5 @@ async function getAuditLogById(req, res, next) {
 module.exports = {
   listAuditLogs,
   getAuditLogById,
+  safeAuditRecord,
 };
