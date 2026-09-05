@@ -133,6 +133,51 @@
   background: #1d4ed8;
 }
 
+.login-divider {
+  display: flex;
+  align-items: center;
+  margin-top: 18px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #94a3b8;
+}
+
+.login-divider::before,
+.login-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: #e2e8f0;
+}
+
+.login-divider span {
+  margin: 0 12px;
+}
+
+.passkey-button {
+  width: 100%;
+  padding: 13px;
+  margin-top: 12px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #0f172a;
+  background: #ffffff;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 0.2s, border-color 0.2s;
+}
+
+.passkey-button:hover {
+  background: #f1f5f9;
+  border-color: #94a3b8;
+}
+
+.passkey-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .login-footer {
   margin-top: 24px;
   text-align: center;

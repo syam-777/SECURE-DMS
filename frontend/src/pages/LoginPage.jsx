@@ -1,15 +1,129 @@
 ﻿import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import { startAuthentication } from "@simplewebauthn/browser";
 import "./LoginPage.css";
 
 function LoginPage() {
+  const navigate = useNavigate();
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [passkeyLoading, setPasskeyLoading] = useState(false);
+const handleSubmit = async (event) => {
+  event.preventDefault();
 
-  const handleSubmit = (event) => {
-    event.preventDefault();
-    console.log("Login attempted with:", { email, password });
+  try {
+    const response = await fetch("http://localhost:5000/api/auth/login", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        email,
+        password,
+      }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok || !data.success) {
+      throw new Error(data.message || "Login failed");
+    }
+
+    // Store JWT for authenticated API requests
+    localStorage.setItem("token", data.token);
+
+    // Store user information if returned by the backend
+    if (data.user) {
+      localStorage.setItem("user", JSON.stringify(data.user));
+    }
+
+    console.log("✅ Login successful");
+
+    navigate("/dashboard");
+  } catch (error) {
+    console.error("Login error:", error);
+    alert(error.message);
+  }
+};
+
+  const handlePasskeyLogin = async () => {
+    const normalizedEmail = email.trim();
+
+    if (!normalizedEmail) {
+      alert("Please enter your email to continue with passkey login.");
+      return;
+    }
+
+    try {
+      setPasskeyLoading(true);
+
+      const optionsResponse = await fetch(
+        "http://localhost:5000/api/passkeys/login/options",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ email: normalizedEmail }),
+        }
+      );
+
+      const optionsData = await optionsResponse.json();
+
+      if (!optionsResponse.ok || !optionsData.success) {
+        throw new Error(optionsData.message || "Could not start passkey login");
+      }
+
+      const credential = await startAuthentication({
+        optionsJSON: optionsData.options,
+      });
+
+      const verifyResponse = await fetch(
+        "http://localhost:5000/api/passkeys/login/verify",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(credential),
+        }
+      );
+
+      const verifyData = await verifyResponse.json();
+
+      if (!verifyResponse.ok || !verifyData.success) {
+        throw new Error(verifyData.message || "Passkey login failed");
+      }
+
+      // Store JWT for authenticated API requests
+      localStorage.setItem("token", verifyData.token);
+
+      // Store user information if returned by the backend
+      if (verifyData.user) {
+        localStorage.setItem("user", JSON.stringify(verifyData.user));
+      }
+
+      navigate("/dashboard");
+    } catch (error) {
+      if (
+        error.name === "NotAllowedError" ||
+        error.code === "ERROR_CEREMONY_ABORTED"
+      ) {
+        alert("Passkey authentication was cancelled. Please try again.");
+      } else {
+        const message =
+          error instanceof Error &&
+          typeof error.message === "string" &&
+          error.message.trim()
+            ? error.message
+            : "Passkey login failed. Please try again.";
+        alert(message);
+      }
+    } finally {
+      setPasskeyLoading(false);
+    }
   };
 
   const togglePasswordVisibility = () => {
@@ -67,6 +181,19 @@ function LoginPage() {
 
           <button type="submit" className="login-button">
             Login
+          </button>
+
+          <div className="login-divider">
+            <span>or</span>
+          </div>
+
+          <button
+            type="button"
+            className="passkey-button"
+            onClick={handlePasskeyLogin}
+            disabled={passkeyLoading}
+          >
+            {passkeyLoading ? "Waiting for device..." : "Login with Passkey"}
           </button>
         </form>
 
