@@ -9,6 +9,7 @@ const roleRoutes = require("./routes/roleRoutes");
 const caseRoutes = require("./routes/caseRoutes");
 const documentRoutes = require("./routes/documentRoutes");
 const searchRoutes = require("./routes/searchRoutes");
+const auditRoutes = require("./routes/auditRoutes");
 
 const app = express();
 
@@ -28,6 +29,7 @@ app.use("/api/roles", roleRoutes);
 app.use("/api/cases", caseRoutes);
 app.use("/api/documents", documentRoutes);
 app.use("/api/search", searchRoutes);
+app.use("/api/audit-logs", auditRoutes);
 
 app.use(notFoundHandler);
 app.use(errorHandler);

@@ -473,6 +473,54 @@ const documentSearchValidators = [
     .withMessage("order must be 'asc' or 'desc'"),
 ];
 
+const AUDIT_SORT_PATTERN = /^[A-Za-z_]+$/;
+
+const auditLogIdParamValidator = [
+  param("id")
+    .isInt({ min: 1 })
+    .withMessage("Audit log ID must be a positive integer"),
+];
+
+const auditLogsListValidators = [
+  query("action")
+    .optional()
+    .trim()
+    .isLength({ max: 50 })
+    .withMessage("action must be 50 characters or fewer"),
+  query("resourceType")
+    .optional()
+    .trim()
+    .isLength({ max: 50 })
+    .withMessage("resourceType must be 50 characters or fewer"),
+  query("userId")
+    .optional()
+    .trim()
+    .isInt({ min: 1 })
+    .withMessage("userId must be a positive integer"),
+  query("from")
+    .optional()
+    .trim()
+    .isISO8601()
+    .withMessage("from must be a valid ISO 8601 date/time"),
+  query("to")
+    .optional()
+    .trim()
+    .isISO8601()
+    .withMessage("to must be a valid ISO 8601 date/time"),
+  ...paginationValidators,
+  query("sort")
+    .optional()
+    .trim()
+    .matches(AUDIT_SORT_PATTERN)
+    .withMessage("sort must contain only letters and underscores"),
+  query("order")
+    .optional()
+    .trim()
+    .toLowerCase()
+    .isIn(["asc", "desc"])
+    .withMessage("order must be 'asc' or 'desc'"),
+];
+
 module.exports = {
   registerValidators,
   loginValidators,
@@ -495,4 +543,6 @@ module.exports = {
   uploadDocumentValidators,
   caseSearchValidators,
   documentSearchValidators,
+  auditLogIdParamValidator,
+  auditLogsListValidators,
 };
