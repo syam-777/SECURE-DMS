@@ -13,6 +13,7 @@ const auditRoutes = require("./routes/auditRoutes");
 const dashboardRoutes = require("./routes/dashboardRoutes");
 const officerVerificationRoutes = require("./routes/officerVerificationRoutes");
 const passkeyRoutes = require("./routes/passkeyRoutes");
+const aiRoutes = require("./routes/aiRoutes");
 
 const app = express();
 
@@ -36,6 +37,7 @@ app.use("/api/audit-logs", auditRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/verifications", officerVerificationRoutes);
 app.use("/api/passkeys", passkeyRoutes);
+app.use("/api/ai", aiRoutes);
 
 app.use(notFoundHandler);
 app.use(errorHandler);

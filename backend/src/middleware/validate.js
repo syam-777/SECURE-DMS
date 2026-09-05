@@ -174,6 +174,29 @@ const paginationValidators = [
     .withMessage("search must be a string up to 100 characters"),
 ];
 
+// ─── Phase 13 AI validators ─────────────────────────────────
+const PROMPT_MAX_LENGTH = 2000;
+
+const aiTestValidators = [
+  body("prompt").custom((value) => {
+    if (value == null) {
+      throw new Error("prompt is required");
+    }
+    if (typeof value !== "string") {
+      throw new Error("prompt must be a string");
+    }
+    if (value.trim() === "") {
+      throw new Error("prompt is required");
+    }
+    if (value.trim().length > PROMPT_MAX_LENGTH) {
+      throw new Error(
+        `prompt must be ${PROMPT_MAX_LENGTH} characters or fewer`
+      );
+    }
+    return true;
+  }),
+];
+
 // ─── Case management validators ───────────────────────────────
 const CASE_STATUSES = ["open", "in_progress", "under_review", "closed", "archived"];
 const CASE_PRIORITIES = ["low", "medium", "high", "critical"];
@@ -610,6 +633,7 @@ module.exports = {
   registerValidators,
   loginValidators,
   validateRequest,
+  aiTestValidators,
   adminCreateUserValidators,
   adminUpdateUserValidators,
   changeRoleValidators,
