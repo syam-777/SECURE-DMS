@@ -15,15 +15,18 @@ const {
   getVersion,
   downloadVersion,
   verifyVersionIntegrity,
+  summarizeDocument,
 } = require("../controllers/documentController");
 const { authenticate, authorize } = require("../middleware/authMiddleware");
 const {
   documentIdParamValidator,
   documentVersionParamValidator,
+  documentSummarizeValidators,
   documentListValidators,
   uploadDocumentValidators,
   validateRequest,
 } = require("../middleware/validate");
+const { aiSummaryLimiter } = require("../middleware/rateLimiter");
 const {
   UPLOAD_DIR,
   MAX_FILE_SIZE,
@@ -210,6 +213,19 @@ router.get(
   documentIdParamValidator,
   validateRequest,
   downloadDocument
+);
+
+// POST /api/documents/:id/summarize — AI-powered document summarization
+// Requires the same read+download permissions the user needs to access
+// the document content, so a user can never summarize a document they
+// cannot already access. Rate-limited separately from other endpoints.
+router.post(
+  "/:id/summarize",
+  authorize("documents:read", "documents:download"),
+  aiSummaryLimiter,
+  documentSummarizeValidators,
+  validateRequest,
+  summarizeDocument
 );
 
 // DELETE /api/documents/:id — soft-delete a document

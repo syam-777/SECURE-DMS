@@ -1,6 +1,8 @@
 const fs = require("fs");
 const { logAuditEvent } = require("../models/auditLogModel");
 const { findCaseNumberById } = require("../models/caseModel");
+const { readDocumentText } = require("../services/documentContentService");
+const { summarizeText } = require("../services/aiService");
 const {
   safeDocumentPath,
   sha256File,
@@ -450,6 +452,72 @@ async function verifyVersionIntegrity(req, res, next) {
   }
 }
 
+// ─── POST /api/documents/:id/summarize ────────────────────────
+// Protected (JWT + documents:read + documents:download, enforced in the
+// route). The document/version is resolved entirely server-side, the
+// content is never sent to Gemini before authorization, and neither the
+// document text, the prompt, the summary, nor any secret is logged.
+async function summarizeDocument(req, res, next) {
+  try {
+    const docId = req.params.id;
+    const version = req.body.version != null ? Number(req.body.version) : null;
+
+    // 1. Authorization has already succeeded (route middleware).
+    // 2. Resolve the document and extract its text server-side.
+    const content = await readDocumentText(docId, version);
+
+    // 3. Generate the summary with the server-constructed prompt.
+    const summary = await summarizeText({
+      text: content.text,
+      title: content.title,
+      documentType: content.documentType,
+      truncated: content.truncated,
+    });
+
+    // 4. Audit metadata only — never document text, prompt, or summary.
+    await logAuditEvent({
+      userId: req.user.id,
+      action: "DOCUMENT_SUMMARIZED",
+      resourceType: "document",
+      resourceId: Number(docId),
+      ipAddress: req.ip,
+      userAgent: req.get("user-agent"),
+      details: {
+        versionNumber: content.versionNumber,
+        mimeType: content.mimeType,
+        truncated: content.truncated,
+      },
+    });
+
+    return res.json({
+      success: true,
+      documentId: Number(docId),
+      title: content.title,
+      versionNumber: content.versionNumber,
+      summary,
+      truncated: content.truncated,
+    });
+  } catch (err) {
+    if (err.code === "GEMINI_NOT_CONFIGURED") {
+      return next(httpError(500, "AI service is not configured"));
+    }
+    if (err.code === "GEMINI_EMPTY_INPUT") {
+      return next(httpError(422, "File contains no extractable text"));
+    }
+
+    // Typed 4xx errors (400/404/415/422) from content extraction or audit
+    // failures should pass through unchanged and never hit Gemini retries.
+    if (err.statusCode && err.expose) {
+      return next(err);
+    }
+
+    // Never leak SDK internals, the API key, document content, or stack
+    // traces. Log only a fixed, safe diagnostic line.
+    console.error("Document summarization failed");
+    return next(httpError(502, "AI service is temporarily unavailable"));
+  }
+}
+
 module.exports = {
   listDocuments,
   getDocumentById,
@@ -461,4 +529,5 @@ module.exports = {
   getVersion,
   downloadVersion,
   verifyVersionIntegrity,
+  summarizeDocument,
 };

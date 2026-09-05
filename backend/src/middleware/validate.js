@@ -345,6 +345,18 @@ const documentVersionParamValidator = [
     .withMessage("versionNumber must be a positive integer"),
 ];
 
+// POST /api/documents/:id/summarize — the version is optional and
+// defaults to the document's current_version server-side.
+const documentSummarizeValidators = [
+  param("id")
+    .isInt({ min: 1 })
+    .withMessage("Document ID must be a positive integer"),
+  body("version")
+    .optional({ values: "null" })
+    .isInt({ min: 1 })
+    .withMessage("version must be a positive integer"),
+];
+
 const documentListValidators = [
   ...paginationValidators,
   query("status")
@@ -648,6 +660,7 @@ module.exports = {
   deleteAssignmentValidators,
   documentIdParamValidator,
   documentVersionParamValidator,
+  documentSummarizeValidators,
   documentListValidators,
   uploadDocumentValidators,
   caseSearchValidators,
