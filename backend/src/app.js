@@ -18,7 +18,21 @@ const aiRoutes = require("./routes/aiRoutes");
 const app = express();
 
 app.use(helmet());
-app.use(cors());
+
+const allowedOrigin = process.env.FRONTEND_ORIGIN || "http://localhost:5173";
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (!origin || origin === allowedOrigin) {
+        return callback(null, true);
+      }
+
+      return callback(null, false);
+    },
+  })
+);
+
 app.use(express.json());
 
 app.get("/", (req, res) => {
