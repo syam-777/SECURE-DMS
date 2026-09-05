@@ -17,13 +17,18 @@ async function findUserByEmail(email) {
 
 /**
  * Find a user by id, including the password_hash (internal use).
+ * Optional `connection` allows reads inside a transaction; optional
+ * `forUpdate` appends SELECT ... FOR UPDATE to lock the row.
  * @param {number|string} id
+ * @param {{ connection?: object, forUpdate?: boolean }} [opts]
  * @returns {Promise<object|null>} user row or null
  */
-async function findUserById(id) {
-  const [rows] = await pool.query(
+async function findUserById(id, opts = {}) {
+  const exec = opts.connection || pool;
+  const lockSql = opts.forUpdate ? " FOR UPDATE" : "";
+  const [rows] = await exec.query(
     "SELECT id, username, email, password_hash, full_name, role_id, is_active, created_at, updated_at " +
-      "FROM users WHERE id = ? LIMIT 1",
+      "FROM users WHERE id = ? LIMIT 1" + lockSql,
     [id]
   );
   return rows[0] || null;
@@ -185,12 +190,16 @@ async function updateUser(id, fields) {
 
 /**
  * Change a user's role.
+ * Optional `connection` lets the caller run this inside a transaction
+ * (used by the officer-verification approval flow).
  * @param {number|string} userId
  * @param {number} roleId
+ * @param {object} [connection]
  * @returns {Promise<boolean>}
  */
-async function updateUserRole(userId, roleId) {
-  const [result] = await pool.query(
+async function updateUserRole(userId, roleId, connection) {
+  const exec = connection || pool;
+  const [result] = await exec.query(
     "UPDATE users SET role_id = ? WHERE id = ?",
     [roleId, userId]
   );

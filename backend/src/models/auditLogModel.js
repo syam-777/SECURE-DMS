@@ -5,7 +5,12 @@ const { pool } = require("../config/database");
  * On failure it logs a safe, generic message to the console and does
  * NOT throw, so an auditing problem never breaks the request flow.
  *
- * NOTE: Never pass passwords or JWT tokens to `details`.
+ * An optional `connection` (a MySQL transaction connection) may be
+ * supplied so the audit record can commit/roll back with the calling
+ * transaction (used by the officer-verification approval flow).
+ *
+ * NOTE: Never pass passwords, JWT tokens, or raw official ID values
+ * to `details`.
  *
  * @param {{
  *   userId: number|string|null,
@@ -16,13 +21,15 @@ const { pool } = require("../config/database");
  *   userAgent?: string|null,
  *   details?: object|null
  * }} data
+ * @param {object} [connection]
  * @returns {Promise<void>}
  */
-async function logAuditEvent(data) {
+async function logAuditEvent(data, connection) {
   const details = data.details && typeof data.details === "object" ? data.details : null;
 
   try {
-    await pool.query(
+    const exec = connection || pool;
+    await exec.query(
       "INSERT INTO audit_logs " +
         "(user_id, action, resource_type, resource_id, ip_address, user_agent, details) " +
         "VALUES (?, ?, ?, ?, ?, ?, ?)",

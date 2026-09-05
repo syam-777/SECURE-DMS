@@ -521,6 +521,91 @@ const auditLogsListValidators = [
     .withMessage("order must be 'asc' or 'desc'"),
 ];
 
+// ─── Phase 11 officer verification validators ──────────────────
+const SUBMIT_VERIFICATION_MAX_ID_NUMBER = 255;
+
+const submitVerificationValidators = [
+  body("fullName")
+    .trim()
+    .notEmpty()
+    .withMessage("Full name is required")
+    .isLength({ max: 255 })
+    .withMessage("Full name must be 255 characters or fewer"),
+  body("officialIdType")
+    .trim()
+    .notEmpty()
+    .withMessage("Official ID type is required")
+    .isLength({ max: 50 })
+    .withMessage("Official ID type must be 50 characters or fewer"),
+  body("officialIdNumber")
+    .trim()
+    .notEmpty()
+    .withMessage("Official ID number is required")
+    .isLength({ min: 3, max: SUBMIT_VERIFICATION_MAX_ID_NUMBER })
+    .withMessage(
+      `Official ID number must be between 3 and ${SUBMIT_VERIFICATION_MAX_ID_NUMBER} characters`
+    ),
+];
+
+const verificationIdParamValidator = [
+  param("id")
+    .isInt({ min: 1 })
+    .withMessage("Verification ID must be a positive integer"),
+];
+
+const APPROVE_REVIEW_NOTE_MAX = 2000;
+
+const approveVerificationValidators = [
+  param("id")
+    .isInt({ min: 1 })
+    .withMessage("Verification ID must be a positive integer"),
+  body("reviewNote")
+    .optional({ nullable: true })
+    .trim()
+    .isLength({ max: APPROVE_REVIEW_NOTE_MAX })
+    .withMessage(`reviewNote must be ${APPROVE_REVIEW_NOTE_MAX} characters or fewer`),
+];
+
+const rejectVerificationValidators = [
+  param("id")
+    .isInt({ min: 1 })
+    .withMessage("Verification ID must be a positive integer"),
+  body("reviewNote")
+    .trim()
+    .notEmpty()
+    .withMessage("A review note is required for rejection")
+    .isLength({ max: APPROVE_REVIEW_NOTE_MAX })
+    .withMessage(`reviewNote must be ${APPROVE_REVIEW_NOTE_MAX} characters or fewer`),
+];
+
+const VERIFICATION_STATUSES = ["pending", "approved", "rejected"];
+
+const verificationListValidators = [
+  query("status")
+    .optional()
+    .trim()
+    .toLowerCase()
+    .isIn(VERIFICATION_STATUSES)
+    .withMessage("status must be one of: " + VERIFICATION_STATUSES.join(", ")),
+  query("userId")
+    .optional()
+    .trim()
+    .isInt({ min: 1 })
+    .withMessage("userId must be a positive integer"),
+  ...paginationValidators,
+  query("sort")
+    .optional()
+    .trim()
+    .matches(/^[A-Za-z_]+$/)
+    .withMessage("sort must contain only letters and underscores"),
+  query("order")
+    .optional()
+    .trim()
+    .toLowerCase()
+    .isIn(["asc", "desc"])
+    .withMessage("order must be 'asc' or 'desc'"),
+];
+
 module.exports = {
   registerValidators,
   loginValidators,
@@ -545,4 +630,9 @@ module.exports = {
   documentSearchValidators,
   auditLogIdParamValidator,
   auditLogsListValidators,
+  submitVerificationValidators,
+  verificationIdParamValidator,
+  approveVerificationValidators,
+  rejectVerificationValidators,
+  verificationListValidators,
 };

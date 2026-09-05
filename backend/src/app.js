@@ -11,6 +11,7 @@ const documentRoutes = require("./routes/documentRoutes");
 const searchRoutes = require("./routes/searchRoutes");
 const auditRoutes = require("./routes/auditRoutes");
 const dashboardRoutes = require("./routes/dashboardRoutes");
+const officerVerificationRoutes = require("./routes/officerVerificationRoutes");
 
 const app = express();
 
@@ -32,6 +33,7 @@ app.use("/api/documents", documentRoutes);
 app.use("/api/search", searchRoutes);
 app.use("/api/audit-logs", auditRoutes);
 app.use("/api/dashboard", dashboardRoutes);
+app.use("/api/verifications", officerVerificationRoutes);
 
 app.use(notFoundHandler);
 app.use(errorHandler);

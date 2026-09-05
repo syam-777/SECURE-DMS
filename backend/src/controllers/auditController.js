@@ -12,7 +12,7 @@ function httpError(statusCode, message) {
 }
 
 const SENSITIVE_KEY_PATTERN =
-  /password|passwd|secret|token|authorization|credential|file_path|stored_file_name|filepath|storedfilename|bearer/i;
+  /password|passwd|secret|token|authorization|credential|file_path|stored_file_name|filepath|storedfilename|bearer|officialIdNumber|official_id_number|officialIdHash|official_id_hash|aadhaar|aadhaarNumber|path/i;
 
 const SENSITIVE_EQUALITY_KEYS = new Set([
   "path",

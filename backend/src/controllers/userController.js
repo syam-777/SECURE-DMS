@@ -62,17 +62,27 @@ async function createNewUser(req, res, next) {
     }
 
     let targetRoleId = roleId;
+    let assignedRole = null;
     if (!targetRoleId) {
-      const defaultRole = await findRoleByName("USER");
-      if (!defaultRole) {
+      assignedRole = await findRoleByName("USER");
+      if (!assignedRole) {
         throw httpError(500, "Default USER role is not configured");
       }
-      targetRoleId = defaultRole.id;
+      targetRoleId = assignedRole.id;
     } else {
-      const requestedRole = await findRoleById(targetRoleId);
-      if (!requestedRole) {
+      assignedRole = await findRoleById(targetRoleId);
+      if (!assignedRole) {
         throw httpError(400, "Invalid role ID");
       }
+    }
+
+    // Phase 11 security: OFFICER may only be granted via the officer
+    // verification approval workflow, never directly at creation time.
+    if (assignedRole.name === "OFFICER") {
+      throw httpError(
+        409,
+        "OFFICER role can only be assigned through officer verification approval"
+      );
     }
 
     const localPart = (normalizedEmail.split("@")[0] || "user")
@@ -279,6 +289,15 @@ async function changeUserRole(req, res, next) {
       }
     } else {
       throw httpError(400, "Either roleId or role is required");
+    }
+
+    // Phase 11 security: OFFICER may only be granted through the officer
+    // verification approval workflow — never via the generic role APIs.
+    if (resolvedRole.name === "OFFICER") {
+      throw httpError(
+        409,
+        "OFFICER role can only be assigned through officer verification approval"
+      );
     }
 
     if (target.role === resolvedRole.name) {
