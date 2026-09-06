@@ -1,47 +1,125 @@
-import { useState } from "react";
-import { NavLink } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { NavLink, useNavigate } from "react-router-dom";
+import { apiFetch } from "../api/api";
 import "./SearchPage.css";
 
-const sampleDocuments = [
-  { id: "DOC-5001", name: "FIR_Report_CASE1001.pdf", type: "FIR", caseId: "CASE-1001", caseTitle: "Theft Investigation", uploadedBy: "Sgt. A. Sharma", updated: "2026-09-02", status: "Verified" },
-  { id: "DOC-5002", name: "Witness_Statement_CASE1003.pdf", type: "Witness Statement", caseId: "CASE-1003", caseTitle: "Fraud Investigation", uploadedBy: "Insp. R. Verma", updated: "2026-08-30", status: "Pending" },
-  { id: "DOC-5003", name: "Investigation_Report_CASE1005.pdf", type: "Investigation Report", caseId: "CASE-1005", caseTitle: "Missing Person Investigation", uploadedBy: "Insp. R. Verma", updated: "2026-09-03", status: "Verified" },
-  { id: "DOC-5004", name: "Forensic_Report_CASE1001.pdf", type: "Forensic Report", caseId: "CASE-1001", caseTitle: "Theft Investigation", uploadedBy: "Sgt. A. Sharma", updated: "2026-09-01", status: "Protected" },
-  { id: "DOC-5005", name: "Charge_Sheet_CASE1004.pdf", type: "Investigation Report", caseId: "CASE-1004", caseTitle: "Vehicle Break-In", uploadedBy: "PO K. Nair", updated: "2026-08-29", status: "Verified" },
-  { id: "DOC-5006", name: "Court_Filing_CASE1005.pdf", type: "Court Filing", caseId: "CASE-1005", caseTitle: "Missing Person Investigation", uploadedBy: "Insp. R. Verma", updated: "2026-09-02", status: "Pending" },
-  { id: "DOC-5007", name: "Investigation_Report_CASE1008.pdf", type: "Investigation Report", caseId: "CASE-1008", caseTitle: "Cyber Crime Investigation", uploadedBy: "Insp. R. Verma", updated: "2026-09-03", status: "Verified" },
-  { id: "DOC-5008", name: "Witness_Statement_CASE1006.pdf", type: "Witness Statement", caseId: "CASE-1006", caseTitle: "Public Disturbance Report", uploadedBy: "PO K. Nair", updated: "2026-09-03", status: "Pending" },
-];
-
-const documentTypes = ["All", "FIR", "Investigation Report", "Witness Statement", "Forensic Report", "Court Filing"];
-const caseOptions = ["All", "CASE-1001", "CASE-1003", "CASE-1005", "CASE-1008"];
-const statusOptions = ["All", "Verified", "Protected", "Pending"];
-
 function SearchPage() {
+  const navigate = useNavigate();
+
   const [searchTerm, setSearchTerm] = useState("");
   const [typeFilter, setTypeFilter] = useState("All");
   const [caseFilter, setCaseFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
 
-  const handleView = () => {
-    alert("Document viewing will be connected to the backend later.");
-  };
+  const [documents, setDocuments] = useState([]);
+  const [cases, setCases] = useState([]);
 
-  const filteredResults = sampleDocuments.filter((doc) => {
-    const term = searchTerm.toLowerCase();
-    const matchesSearch =
-      doc.name.toLowerCase().includes(term) ||
-      doc.type.toLowerCase().includes(term) ||
-      doc.caseId.toLowerCase().includes(term) ||
-      doc.caseTitle.toLowerCase().includes(term) ||
-      doc.uploadedBy.toLowerCase().includes(term);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState("");
 
-    const matchesType = typeFilter === "All" || doc.type === typeFilter;
-    const matchesCase = caseFilter === "All" || doc.caseId === caseFilter;
-    const matchesStatus = statusFilter === "All" || doc.status === statusFilter;
+  useEffect(() => {
+    async function loadCases() {
+      try {
+        const response = await apiFetch("/cases?limit=100");
+        setCases(response.cases || []);
+      } catch (err) {
+        console.error("Failed to load cases:", err);
+      }
+    }
 
-    return matchesSearch && matchesType && matchesCase && matchesStatus;
-  });
+    loadCases();
+  }, []);
+
+  async function performSearch() {
+    try {
+      setIsLoading(true);
+      setError("");
+
+      const params = new URLSearchParams();
+
+      if (searchTerm.trim()) {
+        params.set("q", searchTerm.trim());
+      }
+
+      if (typeFilter !== "All") {
+        params.set("documentType", typeFilter);
+      }
+
+      if (caseFilter !== "All") {
+        const selectedCase = cases.find(
+          (caseItem) => String(caseItem.id) === caseFilter
+        );
+
+        if (selectedCase) {
+          params.set("caseId", String(selectedCase.id));
+        }
+      }
+
+      if (statusFilter !== "All") {
+        const statusMap = {
+          Active: "active",
+          Archived: "archived",
+          Deleted: "deleted",
+        };
+
+        params.set("status", statusMap[statusFilter] || statusFilter);
+      }
+
+      params.set("page", "1");
+      params.set("limit", "100");
+
+      const query = params.toString();
+
+      const response = await apiFetch(
+        `/search/documents${query ? `?${query}` : ""}`
+      );
+
+      setDocuments(response.documents || []);
+    } catch (err) {
+      console.error("Document search failed:", err);
+      setError(err.message || "Failed to search documents");
+      setDocuments([]);
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    performSearch();
+  }, [typeFilter, caseFilter, statusFilter]);
+
+  function handleSearch(event) {
+    event.preventDefault();
+    performSearch();
+  }
+
+  function handleView(documentId) {
+    navigate(`/document-details/${documentId}`);
+  }
+
+  function handleLogout() {
+    localStorage.removeItem("token");
+    localStorage.removeItem("user");
+    navigate("/login");
+  }
+
+  const documentTypes = [
+    "All",
+    ...Array.from(
+      new Set(
+        documents
+          .map((doc) => doc.document_type)
+          .filter(Boolean)
+      )
+    ),
+  ];
+
+  const statusOptions = [
+    "All",
+    "Active",
+    "Archived",
+    "Deleted",
+  ];
 
   return (
     <div className="search-page">
@@ -50,96 +128,188 @@ function SearchPage() {
           <span className="brand-icon">&#128274;</span>
           <span className="brand-text">Secure DMS</span>
         </div>
+
         <div className="navbar-right">
           <button className="icon-button" aria-label="Notifications">
             &#128276;
           </button>
+
           <div className="user-area">
-            <span className="user-avatar">A</span>
-            <span className="user-name">Admin User</span>
+            <span className="user-avatar">
+              {(JSON.parse(localStorage.getItem("user") || "{}").full_name ||
+                "U")
+                .charAt(0)
+                .toUpperCase()}
+            </span>
+
+            <span className="user-name">
+              {JSON.parse(localStorage.getItem("user") || "{}").full_name ||
+                "User"}
+            </span>
           </div>
-          <button className="logout-button">Logout</button>
+
+          <button className="logout-button" onClick={handleLogout}>
+            Logout
+          </button>
         </div>
       </nav>
 
       <div className="dashboard-body">
         <aside className="sidebar">
-          <NavLink className={({ isActive }) => "sidebar-item" + (isActive ? " active" : "")} to="/dashboard">Dashboard</NavLink>
-          <NavLink className={({ isActive }) => "sidebar-item" + (isActive ? " active" : "")} to="/cases">Cases</NavLink>
-          <NavLink className={({ isActive }) => "sidebar-item" + (isActive ? " active" : "")} to="/documents">Documents</NavLink>
-          <NavLink className={({ isActive }) => "sidebar-item" + (isActive ? " active" : "")} to="/ai-assistant">AI Assistant</NavLink>
-          <NavLink className={({ isActive }) => "sidebar-item" + (isActive ? " active" : "")} to="/search">Search</NavLink>
-          <NavLink className={({ isActive }) => "sidebar-item" + (isActive ? " active" : "")} to="/audit-logs">Audit Logs</NavLink>
+          <NavLink
+            className={({ isActive }) =>
+              "sidebar-item" + (isActive ? " active" : "")
+            }
+            to="/dashboard"
+          >
+            Dashboard
+          </NavLink>
+
+          <NavLink
+            className={({ isActive }) =>
+              "sidebar-item" + (isActive ? " active" : "")
+            }
+            to="/cases"
+          >
+            Cases
+          </NavLink>
+
+          <NavLink
+            className={({ isActive }) =>
+              "sidebar-item" + (isActive ? " active" : "")
+            }
+            to="/documents"
+          >
+            Documents
+          </NavLink>
+
+          <NavLink
+            className={({ isActive }) =>
+              "sidebar-item" + (isActive ? " active" : "")
+            }
+            to="/ai-assistant"
+          >
+            AI Assistant
+          </NavLink>
+
+          <NavLink
+            className={({ isActive }) =>
+              "sidebar-item" + (isActive ? " active" : "")
+            }
+            to="/search"
+          >
+            Search
+          </NavLink>
+
+          <NavLink
+            className={({ isActive }) =>
+              "sidebar-item" + (isActive ? " active" : "")
+            }
+            to="/audit-logs"
+          >
+            Audit Logs
+          </NavLink>
         </aside>
 
         <main className="main-content">
           <div className="page-heading">
             <h1 className="page-title">Search Documents</h1>
+
             <p className="page-description">
-              Quickly find authorized case documents by name, type, case, or uploader.
+              Quickly find authorized case documents by name, type, case, or
+              uploader.
             </p>
           </div>
 
           <div className="search-section">
-            <div className="search-row">
+            <form className="search-row" onSubmit={handleSearch}>
               <input
                 className="search-input"
                 type="text"
                 placeholder="Search documents, cases, or officers..."
                 value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                onChange={(event) => setSearchTerm(event.target.value)}
               />
-              <button className="search-button">Search</button>
-            </div>
+
+              <button
+                className="search-button"
+                type="submit"
+                disabled={isLoading}
+              >
+                {isLoading ? "Searching..." : "Search"}
+              </button>
+            </form>
 
             <div className="filter-bar">
               <div className="filter-field">
                 <label htmlFor="type-filter">Document Type</label>
+
                 <select
                   id="type-filter"
                   value={typeFilter}
-                  onChange={(e) => setTypeFilter(e.target.value)}
+                  onChange={(event) => setTypeFilter(event.target.value)}
                 >
                   {documentTypes.map((type) => (
-                    <option key={type} value={type}>{type}</option>
+                    <option key={type} value={type}>
+                      {type}
+                    </option>
                   ))}
                 </select>
               </div>
 
               <div className="filter-field">
                 <label htmlFor="case-filter">Case</label>
+
                 <select
                   id="case-filter"
                   value={caseFilter}
-                  onChange={(e) => setCaseFilter(e.target.value)}
+                  onChange={(event) => setCaseFilter(event.target.value)}
                 >
-                  {caseOptions.map((id) => (
-                    <option key={id} value={id}>{id === "All" ? "All Cases" : id}</option>
+                  <option value="All">All Cases</option>
+
+                  {cases.map((caseItem) => (
+                    <option
+                      key={caseItem.id}
+                      value={String(caseItem.id)}
+                    >
+                      {caseItem.case_number} — {caseItem.title}
+                    </option>
                   ))}
                 </select>
               </div>
 
               <div className="filter-field">
                 <label htmlFor="status-filter">Status</label>
+
                 <select
                   id="status-filter"
                   value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value)}
+                  onChange={(event) => setStatusFilter(event.target.value)}
                 >
                   {statusOptions.map((status) => (
-                    <option key={status} value={status}>{status}</option>
+                    <option key={status} value={status}>
+                      {status}
+                    </option>
                   ))}
                 </select>
               </div>
             </div>
 
             <div className="results-count">
-              Showing {filteredResults.length} of {sampleDocuments.length} documents
+              {isLoading
+                ? "Searching..."
+                : `Showing ${documents.length} documents`}
             </div>
+
+            {error && (
+              <div className="error-message">
+                {error}
+              </div>
+            )}
           </div>
 
           <div className="table-section">
-            {filteredResults.length > 0 ? (
+            {documents.length > 0 ? (
               <table className="search-table">
                 <thead>
                   <tr>
@@ -153,22 +323,53 @@ function SearchPage() {
                     <th>Action</th>
                   </tr>
                 </thead>
+
                 <tbody>
-                  {filteredResults.map((doc) => (
+                  {documents.map((doc) => (
                     <tr key={doc.id}>
-                      <td className="doc-id">{doc.id}</td>
-                      <td className="doc-name">{doc.name}</td>
-                      <td>{doc.type}</td>
-                      <td className="case-id">{doc.caseId}</td>
-                      <td>{doc.uploadedBy}</td>
-                      <td>{doc.updated}</td>
+                      <td className="doc-id">
+                        {doc.id}
+                      </td>
+
+                      <td className="doc-name">
+                        {doc.title || doc.original_file_name || "Untitled"}
+                      </td>
+
                       <td>
-                        <span className={`status-badge status-${doc.status.toLowerCase()}`}>
-                          {doc.status}
+                        {doc.document_type || "—"}
+                      </td>
+
+                      <td className="case-id">
+                        {doc.case_number || doc.case_id || "—"}
+                      </td>
+
+                      <td>
+                        {doc.uploader_name ||
+                          doc.uploader_username ||
+                          "—"}
+                      </td>
+
+                      <td>
+                        {doc.updated_at
+                          ? new Date(doc.updated_at).toLocaleDateString()
+                          : "—"}
+                      </td>
+
+                      <td>
+                        <span
+                          className={`status-badge status-${String(
+                            doc.status || "active"
+                          ).toLowerCase()}`}
+                        >
+                          {doc.status || "active"}
                         </span>
                       </td>
+
                       <td>
-                        <button className="view-button" onClick={handleView}>
+                        <button
+                          className="view-button"
+                          onClick={() => handleView(doc.id)}
+                        >
                           View
                         </button>
                       </td>
@@ -179,10 +380,15 @@ function SearchPage() {
             ) : (
               <div className="empty-state">
                 <span className="empty-icon">&#128269;</span>
-                <h3 className="empty-title">No documents found</h3>
+
+                <h3 className="empty-title">
+                  {isLoading ? "Searching..." : "No documents found"}
+                </h3>
+
                 <p className="empty-text">
-                  No documents match your current search or filters. Try adjusting
-                  your search terms or clearing the filters.
+                  {isLoading
+                    ? "Please wait while the documents are being searched."
+                    : "No documents match your current search or filters. Try adjusting your search terms or clearing the filters."}
                 </p>
               </div>
             )}

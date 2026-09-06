@@ -1,63 +1,197 @@
-﻿import { useState } from "react";
-import { NavLink } from "react-router-dom";
+﻿import { useEffect, useMemo, useState } from "react";
+import { NavLink, useNavigate } from "react-router-dom";
 import "./AuditLogsPage.css";
+import { apiFetch } from "../api/api";
 
-const initialLogs = [
-  { id: 1, timestamp: "2026-09-03 10:24", user: "Admin User", action: "Case Created", resource: "Case", caseId: "CASE-1001", details: "Created new case CASE-1001", status: "Success" },
-  { id: 2, timestamp: "2026-09-03 09:12", user: "Sgt. A. Sharma", action: "Document Uploaded", resource: "FIR_Report_CASE1001.pdf", caseId: "CASE-1001", details: "Uploaded FIR report", status: "Success" },
-  { id: 3, timestamp: "2026-09-02 17:45", user: "Sgt. A. Sharma", action: "Document Viewed", resource: "FIR_Report_CASE1001.pdf", caseId: "CASE-1001", details: "Viewed document", status: "Success" },
-  { id: 4, timestamp: "2026-09-02 16:30", user: "Sgt. A. Sharma", action: "Document Updated", resource: "FIR_Report_CASE1001.pdf", caseId: "CASE-1001", details: "Updated document metadata", status: "Success" },
-  { id: 5, timestamp: "2026-09-02 14:05", user: "Admin User", action: "Case Assigned", resource: "Case", caseId: "CASE-1001", details: "Assigned officer to case", status: "Success" },
-  { id: 6, timestamp: "2026-09-02 11:20", user: "Insp. R. Verma", action: "Document Uploaded", resource: "Witness_Statement_CASE1003.pdf", caseId: "CASE-1003", details: "Uploaded a witness statement", status: "Success" },
-  { id: 7, timestamp: "2026-09-01 15:48", user: "Admin User", action: "Role Changed", resource: "User", caseId: "—", details: "Changed a user's role", status: "Security" },
-  { id: 8, timestamp: "2026-09-01 10:10", user: "Admin User", action: "Login", resource: "Session", caseId: "—", details: "Successful login", status: "Success" },
-  { id: 9, timestamp: "2026-08-31 18:22", user: "PO K. Nair", action: "Document Downloaded", resource: "Charge_Sheet_CASE1004.pdf", caseId: "CASE-1004", details: "Downloaded charge sheet", status: "Success" },
-  { id: 10, timestamp: "2026-08-31 09:55", user: "Admin User", action: "Logout", resource: "Session", caseId: "—", details: "Successful logout", status: "Success" },
-  { id: 11, timestamp: "2026-08-30 13:37", user: "Insp. R. Verma", action: "Case Updated", resource: "Case", caseId: "CASE-1005", details: "Updated case status to Active", status: "Success" },
-  { id: 12, timestamp: "2026-08-30 08:15", user: "Sgt. A. Sharma", action: "Document Viewed", resource: "Forensic_Report_CASE1001.pdf", caseId: "CASE-1001", details: "Viewed forensic report", status: "Success" },
-];
+const formatTimestamp = (value) => {
+  if (!value) return "—";
 
-const actionOptions = [
-  "All Actions",
-  "Login",
-  "Logout",
-  "Case Created",
-  "Case Updated",
-  "Document Uploaded",
-  "Document Viewed",
-  "Document Updated",
-  "Document Downloaded",
-  "Case Assigned",
-  "Role Changed",
-];
+  const date = new Date(value);
 
-const userOptions = ["All Users", "Admin User", "Sgt. A. Sharma", "Insp. R. Verma", "PO K. Nair"];
+  if (Number.isNaN(date.getTime())) {
+    return String(value);
+  }
+
+  return date.toLocaleString();
+};
+
+const formatAction = (action) => {
+  if (!action) return "—";
+
+  return action
+    .replace(/_/g, " ")
+    .toLowerCase()
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+};
+
+const getResourceLabel = (log) => {
+  if (!log.resourceType && !log.resourceId) {
+    return "—";
+  }
+
+  if (log.resourceId != null) {
+    return `${log.resourceType || "Resource"} #${log.resourceId}`;
+  }
+
+  return log.resourceType || "—";
+};
+
+const getDetailsText = (details) => {
+  if (!details) return "—";
+
+  if (typeof details === "string") {
+    return details;
+  }
+
+  try {
+    return Object.entries(details)
+      .map(([key, value]) => {
+        const displayValue =
+          typeof value === "object" && value !== null
+            ? JSON.stringify(value)
+            : String(value);
+
+        return `${key}: ${displayValue}`;
+      })
+      .join(" • ");
+  } catch {
+    return "—";
+  }
+};
+
+const getStatus = (action) => {
+  if (!action) return "Success";
+
+  if (
+    action.includes("FAILED") ||
+    action.includes("DENIED") ||
+    action.includes("ERROR")
+  ) {
+    return "Security";
+  }
+
+  return "Success";
+};
 
 function AuditLogsPage() {
+  const navigate = useNavigate();
+
+  const [logs, setLogs] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [actionFilter, setActionFilter] = useState("All Actions");
   const [userFilter, setUserFilter] = useState("All Users");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
-  const filteredLogs = initialLogs.filter((log) => {
-    const term = searchTerm.toLowerCase();
-    const matchesSearch =
-      log.user.toLowerCase().includes(term) ||
-      log.action.toLowerCase().includes(term) ||
-      log.resource.toLowerCase().includes(term) ||
-      log.caseId.toLowerCase().includes(term);
+  useEffect(() => {
+    let cancelled = false;
 
-    const matchesAction = actionFilter === "All Actions" || log.action === actionFilter;
-    const matchesUser = userFilter === "All Users" || log.user === userFilter;
+    async function loadAuditLogs() {
+      try {
+        setLoading(true);
+        setError("");
 
-    return matchesSearch && matchesAction && matchesUser;
-  });
+        const response = await apiFetch("/audit-logs?limit=100");
 
-  const totalActivities = initialLogs.length;
-  const documentActivities = initialLogs.filter((log) => log.action.startsWith("Document")).length;
-  const caseActivities = initialLogs.filter(
-    (log) => log.action.startsWith("Case") && log.caseId !== "—"
+        if (!response?.success) {
+          throw new Error(
+            response?.message || "Failed to load audit logs"
+          );
+        }
+
+        if (!cancelled) {
+          setLogs(Array.isArray(response.data) ? response.data : []);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err.message || "Failed to load audit logs");
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    }
+
+    loadAuditLogs();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const actionOptions = useMemo(() => {
+    const actions = logs
+      .map((log) => formatAction(log.action))
+      .filter(Boolean);
+
+    return ["All Actions", ...new Set(actions)];
+  }, [logs]);
+
+  const userOptions = useMemo(() => {
+    const users = logs
+      .map((log) =>
+        log.userId != null ? `User #${log.userId}` : "System"
+      )
+      .filter(Boolean);
+
+    return ["All Users", ...new Set(users)];
+  }, [logs]);
+
+  const filteredLogs = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase();
+
+    return logs.filter((log) => {
+      const action = formatAction(log.action);
+      const resource = getResourceLabel(log);
+      const details = getDetailsText(log.details);
+      const user =
+        log.userId != null ? `User #${log.userId}` : "System";
+
+      const matchesSearch =
+        !term ||
+        user.toLowerCase().includes(term) ||
+        action.toLowerCase().includes(term) ||
+        resource.toLowerCase().includes(term) ||
+        details.toLowerCase().includes(term);
+
+      const matchesAction =
+        actionFilter === "All Actions" || action === actionFilter;
+
+      const matchesUser =
+        userFilter === "All Users" || user === userFilter;
+
+      return matchesSearch && matchesAction && matchesUser;
+    });
+  }, [logs, searchTerm, actionFilter, userFilter]);
+
+  const totalActivities = logs.length;
+
+  const documentActivities = logs.filter(
+    (log) => String(log.resourceType || "").toLowerCase() === "document"
   ).length;
-  const securityEvents = initialLogs.filter((log) => log.status === "Security").length;
+
+  const caseActivities = logs.filter(
+    (log) => String(log.resourceType || "").toLowerCase() === "case"
+  ).length;
+
+  const securityEvents = logs.filter(
+    (log) => getStatus(log.action) === "Security"
+  ).length;
+
+  const handleLogout = async () => {
+    try {
+      await apiFetch("/auth/logout", {
+        method: "POST",
+      });
+    } catch {
+      // Even if the audit logout request fails, clear the local session.
+    } finally {
+      localStorage.removeItem("token");
+      localStorage.removeItem("user");
+      navigate("/login");
+    }
+  };
 
   return (
     <div className="audit-page">
@@ -66,33 +200,89 @@ function AuditLogsPage() {
           <span className="brand-icon">&#128274;</span>
           <span className="brand-text">Secure DMS</span>
         </div>
+
         <div className="navbar-right">
           <button className="icon-button" aria-label="Notifications">
             &#128276;
           </button>
+
           <div className="user-area">
             <span className="user-avatar">A</span>
-            <span className="user-name">Admin User</span>
+            <span className="user-name">Admin</span>
           </div>
-          <button className="logout-button">Logout</button>
+
+          <button
+            className="logout-button"
+            onClick={handleLogout}
+          >
+            Logout
+          </button>
         </div>
       </nav>
 
       <div className="dashboard-body">
         <aside className="sidebar">
-          <NavLink className={({ isActive }) => "sidebar-item" + (isActive ? " active" : "")} to="/dashboard">Dashboard</NavLink>
-          <NavLink className={({ isActive }) => "sidebar-item" + (isActive ? " active" : "")} to="/cases">Cases</NavLink>
-          <NavLink className={({ isActive }) => "sidebar-item" + (isActive ? " active" : "")} to="/documents">Documents</NavLink>
-          <NavLink className={({ isActive }) => "sidebar-item" + (isActive ? " active" : "")} to="/ai-assistant">AI Assistant</NavLink>
-          <NavLink className={({ isActive }) => "sidebar-item" + (isActive ? " active" : "")} to="/search">Search</NavLink>
-          <NavLink className={({ isActive }) => "sidebar-item" + (isActive ? " active" : "")} to="/audit-logs">Audit Logs</NavLink>
+          <NavLink
+            className={({ isActive }) =>
+              "sidebar-item" + (isActive ? " active" : "")
+            }
+            to="/dashboard"
+          >
+            Dashboard
+          </NavLink>
+
+          <NavLink
+            className={({ isActive }) =>
+              "sidebar-item" + (isActive ? " active" : "")
+            }
+            to="/cases"
+          >
+            Cases
+          </NavLink>
+
+          <NavLink
+            className={({ isActive }) =>
+              "sidebar-item" + (isActive ? " active" : "")
+            }
+            to="/documents"
+          >
+            Documents
+          </NavLink>
+
+          <NavLink
+            className={({ isActive }) =>
+              "sidebar-item" + (isActive ? " active" : "")
+            }
+            to="/ai-assistant"
+          >
+            AI Assistant
+          </NavLink>
+
+          <NavLink
+            className={({ isActive }) =>
+              "sidebar-item" + (isActive ? " active" : "")
+            }
+            to="/search"
+          >
+            Search
+          </NavLink>
+
+          <NavLink
+            className={({ isActive }) =>
+              "sidebar-item" + (isActive ? " active" : "")
+            }
+            to="/audit-logs"
+          >
+            Audit Logs
+          </NavLink>
         </aside>
 
         <main className="main-content">
           <div className="page-heading">
             <h1 className="page-title">Audit Logs</h1>
             <p className="page-description">
-              Track and review important activities performed within Secure DMS.
+              Track and review important activities performed within Secure
+              DMS.
             </p>
           </div>
 
@@ -102,16 +292,19 @@ function AuditLogsPage() {
               <span className="card-value">{totalActivities}</span>
               <span className="card-label">Total Activities</span>
             </div>
+
             <div className="summary-card">
               <span className="card-icon">&#128196;</span>
               <span className="card-value">{documentActivities}</span>
               <span className="card-label">Document Activities</span>
             </div>
+
             <div className="summary-card">
               <span className="card-icon">&#128274;</span>
               <span className="card-value">{caseActivities}</span>
               <span className="card-label">Case Activities</span>
             </div>
+
             <div className="summary-card security-card">
               <span className="card-icon">&#9888;&#65039;</span>
               <span className="card-value">{securityEvents}</span>
@@ -123,7 +316,7 @@ function AuditLogsPage() {
             <input
               className="search-input"
               type="text"
-              placeholder="Search by user, action, resource, or case ID..."
+              placeholder="Search by user, action, resource, or details..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
@@ -132,33 +325,50 @@ function AuditLogsPage() {
           <div className="filter-bar">
             <div className="filter-field">
               <label htmlFor="action-filter">Action</label>
+
               <select
                 id="action-filter"
                 value={actionFilter}
                 onChange={(e) => setActionFilter(e.target.value)}
               >
                 {actionOptions.map((action) => (
-                  <option key={action} value={action}>{action}</option>
+                  <option key={action} value={action}>
+                    {action}
+                  </option>
                 ))}
               </select>
             </div>
 
             <div className="filter-field">
               <label htmlFor="user-filter">User</label>
+
               <select
                 id="user-filter"
                 value={userFilter}
                 onChange={(e) => setUserFilter(e.target.value)}
               >
                 {userOptions.map((user) => (
-                  <option key={user} value={user}>{user}</option>
+                  <option key={user} value={user}>
+                    {user}
+                  </option>
                 ))}
               </select>
             </div>
           </div>
 
           <div className="table-section">
-            {filteredLogs.length > 0 ? (
+            {loading ? (
+              <div className="empty-state">
+                <h3 className="empty-title">Loading audit records...</h3>
+              </div>
+            ) : error ? (
+              <div className="empty-state">
+                <h3 className="empty-title">
+                  Failed to load audit records
+                </h3>
+                <p className="empty-text">{error}</p>
+              </div>
+            ) : filteredLogs.length > 0 ? (
               <table className="audit-table">
                 <thead>
                   <tr>
@@ -166,40 +376,68 @@ function AuditLogsPage() {
                     <th>User</th>
                     <th>Action</th>
                     <th>Resource</th>
-                    <th>Case ID</th>
                     <th>Details</th>
                     <th>Status</th>
                   </tr>
                 </thead>
+
                 <tbody>
-                  {filteredLogs.map((log) => (
-                    <tr key={log.id}>
-                      <td className="timestamp">{log.timestamp}</td>
-                      <td>{log.user}</td>
-                      <td>
-                        <span className={`action-badge action-${log.action.toLowerCase().replace(/ /g, "-")}`}>
-                          {log.action}
-                        </span>
-                      </td>
-                      <td className="resource">{log.resource}</td>
-                      <td className="case-id">{log.caseId}</td>
-                      <td className="details">{log.details}</td>
-                      <td>
-                        <span className={`status-badge status-${log.status.toLowerCase()}`}>
-                          {log.status}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
+                  {filteredLogs.map((log) => {
+                    const action = formatAction(log.action);
+                    const status = getStatus(log.action);
+
+                    return (
+                      <tr key={log.id}>
+                        <td className="timestamp">
+                          {formatTimestamp(log.createdAt)}
+                        </td>
+
+                        <td>
+                          {log.userId != null
+                            ? `User #${log.userId}`
+                            : "System"}
+                        </td>
+
+                        <td>
+                          <span
+                            className={`action-badge action-${String(
+                              log.action || ""
+                            )
+                              .toLowerCase()
+                              .replace(/_/g, "-")}`}
+                          >
+                            {action}
+                          </span>
+                        </td>
+
+                        <td className="resource">
+                          {getResourceLabel(log)}
+                        </td>
+
+                        <td className="details">
+                          {getDetailsText(log.details)}
+                        </td>
+
+                        <td>
+                          <span
+                            className={`status-badge status-${status.toLowerCase()}`}
+                          >
+                            {status}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             ) : (
               <div className="empty-state">
                 <span className="empty-icon">&#128269;</span>
-                <h3 className="empty-title">No audit records found</h3>
+                <h3 className="empty-title">
+                  No audit records found
+                </h3>
                 <p className="empty-text">
-                  No audit records match your current search or filters. Try
-                  adjusting your search terms or clearing the filters.
+                  No audit records match your current search or filters.
                 </p>
               </div>
             )}
