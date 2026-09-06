@@ -1,5 +1,6 @@
 ﻿import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { apiFetch } from "../api/api";
 import { startAuthentication } from "@simplewebauthn/browser";
 import "./LoginPage.css";
 
@@ -14,22 +15,16 @@ const handleSubmit = async (event) => {
   event.preventDefault();
 
   try {
-    const response = await fetch("http://localhost:5000/api/auth/login", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        email,
-        password,
-      }),
-    });
-
-    const data = await response.json();
-
-    if (!response.ok || !data.success) {
-      throw new Error(data.message || "Login failed");
-    }
+       const data = await apiFetch("/auth/login", {
+  method: "POST",
+  body: JSON.stringify({
+    email,
+    password,
+  }),
+});
+   if (!data.success) {
+  throw new Error(data.message || "Login failed");
+}
 
     // Store JWT for authenticated API requests
     localStorage.setItem("token", data.token);
@@ -59,44 +54,27 @@ const handleSubmit = async (event) => {
     try {
       setPasskeyLoading(true);
 
-      const optionsResponse = await fetch(
-        "http://localhost:5000/api/passkeys/login/options",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ email: normalizedEmail }),
-        }
-      );
+      const optionsData = await apiFetch("/passkeys/login/options", {
+  method: "POST",
+  body: JSON.stringify({ email }),
+});
 
-      const optionsData = await optionsResponse.json();
-
-      if (!optionsResponse.ok || !optionsData.success) {
-        throw new Error(optionsData.message || "Could not start passkey login");
-      }
+if (!optionsData.success) {
+  throw new Error(optionsData.message || "Could not start passkey login");
+}
 
       const credential = await startAuthentication({
         optionsJSON: optionsData.options,
       });
 
-      const verifyResponse = await fetch(
-        "http://localhost:5000/api/passkeys/login/verify",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(credential),
-        }
-      );
+     const verifyData = await apiFetch("/passkeys/login/verify", {
+  method: "POST",
+  body: JSON.stringify(credential),
+});
 
-      const verifyData = await verifyResponse.json();
-
-      if (!verifyResponse.ok || !verifyData.success) {
-        throw new Error(verifyData.message || "Passkey login failed");
-      }
-
+if (!verifyData.success) {
+  throw new Error(verifyData.message || "Passkey login failed");
+}
       // Store JWT for authenticated API requests
       localStorage.setItem("token", verifyData.token);
 
