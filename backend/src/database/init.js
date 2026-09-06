@@ -22,13 +22,18 @@ async function initializeDatabase() {
     // ------------------------------------------------------------------
     // 1. Connect to MySQL server (without selecting a database)
     // ------------------------------------------------------------------
-    connection = await mysql.createConnection({
-      host: process.env.DB_HOST,
-      user: process.env.DB_USER,
-      password: process.env.DB_PASSWORD,
-      port: process.env.DB_PORT,
-      multipleStatements: true,
-    });
+ connection = await mysql.createConnection({
+  host: process.env.DB_HOST,
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
+  port: process.env.DB_PORT,
+  multipleStatements: true,
+  ssl: process.env.DB_SSL === "true"
+    ? {
+        minVersion: "TLSv1.2",
+      }
+    : undefined,
+});
     console.log("✅ Connected to MySQL server");
 
     // ------------------------------------------------------------------
