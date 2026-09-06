@@ -11,6 +11,7 @@ import AuditLogsPage from "./pages/AuditLogsPage";
 import CaseDetailsPage from "./pages/CaseDetailsPage";
 import DocumentDetailsPage from "./pages/DocumentDetailsPage";
 import PasskeyPage from "./pages/PasskeyPage";
+import UserManagementPage from "./pages/UserManagementPage";
 
 function ProtectedRoute() {
   const token = localStorage.getItem("token");
@@ -44,6 +45,7 @@ function App() {
             path="/document-details/:documentId"
             element={<DocumentDetailsPage />}
           />
+          <Route path="/users" element={<UserManagementPage />} />
           <Route path="/passkey" element={<PasskeyPage />} />
         </Route>
       </Routes>
