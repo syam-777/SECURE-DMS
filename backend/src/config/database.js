@@ -19,12 +19,17 @@ const pool = mysql.createPool({
 
 async function testDatabaseConnection() {
   let connection;
+
   try {
     connection = await pool.getConnection();
     console.log("✅ MySQL database connected successfully");
   } catch (error) {
+    console.error("❌ MySQL database connection failed");
+    console.error("Error code:", error.code);
+    console.error("Error message:", error.message);
+    console.error("Error errno:", error.errno);
+
     const message = "MySQL database connection failed";
-    console.error(`❌ ${message}`);
     const err = new Error(message);
     err.name = "DatabaseConnectionError";
     throw err;
@@ -34,7 +39,6 @@ async function testDatabaseConnection() {
     }
   }
 }
-
 module.exports = {
   pool,
   testDatabaseConnection,
