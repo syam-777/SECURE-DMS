@@ -404,6 +404,127 @@
   color: #b91c1c;
 }
 
+/* Real backend statuses */
+.status-open {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.status-in_progress {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.status-under_review {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.status-archived {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.status-closed {
+  background: #e2e8f0;
+  color: #475569;
+}
+
+/* Document status badges (real document.status values) */
+.integrity-active {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.integrity-archived {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.integrity-deleted {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+/* Real audit action badges */
+.action-case_created {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.action-case_updated {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.action-case_status_changed {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.action-case_assigned {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.action-case_unassigned {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.action-case_deleted {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.action-document_created,
+.action-document_uploaded {
+  background: #e0e7ff;
+  color: #3730a3;
+}
+
+.action-document_downloaded {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.action-document_deleted {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.action-document_summarized {
+  background: #fce7f3;
+  color: #be185d;
+}
+
+.action-version_created {
+  background: #e0e7ff;
+  color: #3730a3;
+}
+
+/* Loading / error messages */
+.cases-message {
+  padding: 32px;
+  text-align: center;
+  color: #475569;
+  font-size: 15px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  margin: 24px 0;
+}
+
+.cases-error {
+  background: #fee2e2;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin: 16px 0;
+  font-size: 14px;
+}
+
 .action-buttons {
   display: flex;
   gap: 8px;
