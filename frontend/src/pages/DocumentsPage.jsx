@@ -411,6 +411,17 @@ function DocumentsPage() {
           >
             Audit Logs
           </NavLink>
+
+          {user?.role === "ADMIN" && (
+            <NavLink
+              className={({ isActive }) =>
+                "sidebar-item" + (isActive ? " active" : "")
+              }
+              to="/users"
+            >
+              User Management
+            </NavLink>
+          )}
         </aside>
 
         <main className="main-content">

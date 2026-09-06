@@ -221,6 +221,18 @@ function AIAssistantPage() {
           >
             Audit Logs
           </NavLink>
+
+          {JSON.parse(localStorage.getItem("user") || "{}").role ===
+            "ADMIN" && (
+            <NavLink
+              className={({ isActive }) =>
+                "sidebar-item" + (isActive ? " active" : "")
+              }
+              to="/users"
+            >
+              User Management
+            </NavLink>
+          )}
         </aside>
 
         <main className="main-content">

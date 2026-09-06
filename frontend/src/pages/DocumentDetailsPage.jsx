@@ -180,7 +180,7 @@ const [showPreview, setShowPreview] = useState(false);
         <div className="brand">🔒 Secure DMS</div>
         <nav>
           <NavLink to="/dashboard">Dashboard</NavLink><NavLink to="/cases">Cases</NavLink><NavLink to="/documents">Documents</NavLink>
-          <NavLink to="/ai-assistant">AI Assistant</NavLink><NavLink to="/search">Search</NavLink><NavLink to="/audit-logs">Audit Logs</NavLink><NavLink to="/passkey">Passkey</NavLink>
+          <NavLink to="/ai-assistant">AI Assistant</NavLink><NavLink to="/search">Search</NavLink><NavLink to="/audit-logs">Audit Logs</NavLink>{JSON.parse(localStorage.getItem("user") || "{}").role === "ADMIN" && <NavLink to="/users">User Management</NavLink>}<NavLink to="/passkey">Passkey</NavLink>
           <button onClick={logout}>Logout</button>
         </nav>
       </header>

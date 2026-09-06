@@ -211,6 +211,17 @@ function DashboardPage() {
             Audit Logs
           </NavLink>
 
+          {user.role === "ADMIN" && (
+            <NavLink
+              to="/users"
+              className={({ isActive }) =>
+                isActive ? "nav-link active" : "nav-link"
+              }
+            >
+              User Management
+            </NavLink>
+          )}
+
           <NavLink
             to="/passkey"
             className={({ isActive }) =>
