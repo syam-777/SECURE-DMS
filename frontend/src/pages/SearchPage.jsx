@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { NavLink, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { apiFetch } from "../api/api";
+import AppLayout from "../components/AppLayout";
 import "./SearchPage.css";
 
 function SearchPage() {
@@ -97,12 +98,6 @@ function SearchPage() {
     navigate(`/document-details/${documentId}`);
   }
 
-  function handleLogout() {
-    localStorage.removeItem("token");
-    localStorage.removeItem("user");
-    navigate("/login");
-  }
-
   const documentTypes = [
     "All",
     ...Array.from(
@@ -123,107 +118,7 @@ function SearchPage() {
 
   return (
     <div className="search-page">
-      <nav className="navbar">
-        <div className="navbar-brand">
-          <span className="brand-icon">&#128274;</span>
-          <span className="brand-text">Secure DMS</span>
-        </div>
-
-        <div className="navbar-right">
-          <button className="icon-button" aria-label="Notifications">
-            &#128276;
-          </button>
-
-          <div className="user-area">
-            <span className="user-avatar">
-              {(JSON.parse(localStorage.getItem("user") || "{}").full_name ||
-                "U")
-                .charAt(0)
-                .toUpperCase()}
-            </span>
-
-            <span className="user-name">
-              {JSON.parse(localStorage.getItem("user") || "{}").full_name ||
-                "User"}
-            </span>
-          </div>
-
-          <button className="logout-button" onClick={handleLogout}>
-            Logout
-          </button>
-        </div>
-      </nav>
-
-      <div className="dashboard-body">
-        <aside className="sidebar">
-          <NavLink
-            className={({ isActive }) =>
-              "sidebar-item" + (isActive ? " active" : "")
-            }
-            to="/dashboard"
-          >
-            Dashboard
-          </NavLink>
-
-          <NavLink
-            className={({ isActive }) =>
-              "sidebar-item" + (isActive ? " active" : "")
-            }
-            to="/cases"
-          >
-            Cases
-          </NavLink>
-
-          <NavLink
-            className={({ isActive }) =>
-              "sidebar-item" + (isActive ? " active" : "")
-            }
-            to="/documents"
-          >
-            Documents
-          </NavLink>
-
-          <NavLink
-            className={({ isActive }) =>
-              "sidebar-item" + (isActive ? " active" : "")
-            }
-            to="/ai-assistant"
-          >
-            AI Assistant
-          </NavLink>
-
-          <NavLink
-            className={({ isActive }) =>
-              "sidebar-item" + (isActive ? " active" : "")
-            }
-            to="/search"
-          >
-            Search
-          </NavLink>
-
-          <NavLink
-            className={({ isActive }) =>
-              "sidebar-item" + (isActive ? " active" : "")
-            }
-            to="/audit-logs"
-          >
-            Audit Logs
-          </NavLink>
-
-          {JSON.parse(localStorage.getItem("user") || "{}").role ===
-            "ADMIN" && (
-            <NavLink
-              className={({ isActive }) =>
-                "sidebar-item" + (isActive ? " active" : "")
-              }
-              to="/users"
-            >
-              User Management
-            </NavLink>
-          )}
-        </aside>
-
-        <main className="main-content">
+      <AppLayout>
           <div className="page-heading">
             <h1 className="page-title">Search Documents</h1>
 
@@ -410,8 +305,7 @@ function SearchPage() {
             Search results are limited to documents the authenticated user is
             authorized to access.
           </div>
-        </main>
-      </div>
+      </AppLayout>
     </div>
   );
 }

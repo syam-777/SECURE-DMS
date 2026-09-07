@@ -10,8 +10,10 @@ import SearchPage from "./pages/SearchPage";
 import AuditLogsPage from "./pages/AuditLogsPage";
 import CaseDetailsPage from "./pages/CaseDetailsPage";
 import DocumentDetailsPage from "./pages/DocumentDetailsPage";
-import PasskeyPage from "./pages/PasskeyPage";
 import UserManagementPage from "./pages/UserManagementPage";
+import OfficerVerificationPage from "./pages/OfficerVerificationPage";
+import ReviewerDashboardPage from "./pages/ReviewerDashboardPage";
+import ReviewQueuePage from "./pages/ReviewQueuePage";
 
 function ProtectedRoute() {
   const token = localStorage.getItem("token");
@@ -35,6 +37,8 @@ function App() {
         {/* Protected routes */}
         <Route element={<ProtectedRoute />}>
           <Route path="/dashboard" element={<DashboardPage />} />
+          <Route path="/reviewer-dashboard" element={<ReviewerDashboardPage />} />
+          <Route path="/review-queue" element={<ReviewQueuePage />} />
           <Route path="/cases" element={<CasesPage />} />
           <Route path="/documents" element={<DocumentsPage />} />
           <Route path="/ai-assistant" element={<AIAssistantPage />} />
@@ -46,7 +50,7 @@ function App() {
             element={<DocumentDetailsPage />}
           />
           <Route path="/users" element={<UserManagementPage />} />
-          <Route path="/passkey" element={<PasskeyPage />} />
+          <Route path="/verifications" element={<OfficerVerificationPage />} />
         </Route>
       </Routes>
     </BrowserRouter>

@@ -198,7 +198,7 @@ const aiTestValidators = [
 ];
 
 // ─── Case management validators ───────────────────────────────
-const CASE_STATUSES = ["open", "in_progress", "under_review", "closed", "archived"];
+const CASE_STATUSES = ["open", "in_progress", "under_review", "closed", "archived", "returned"];
 const CASE_PRIORITIES = ["low", "medium", "high", "critical"];
 
 const createCaseValidators = [

@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
-import { NavLink, Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import "./CaseDetailsPage.css";
 import { apiFetch, API_BASE_URL } from "../api/api";
+import AppLayout from "../components/AppLayout";
 
 const caseTypeOptions = [
   "Cyber Crime",
@@ -36,7 +37,9 @@ const activityLabels = {
   CASE_CREATED: "Case created",
   CASE_UPDATED: "Case updated",
   CASE_STATUS_CHANGED: "Status changed",
+  CASE_SUBMITTED_FOR_REVIEW: "Submitted for review",
   CASE_ASSIGNED: "Officer assigned",
+  CASE_REASSIGNED: "Officer reassigned",
   CASE_UNASSIGNED: "Officer unassigned",
   CASE_DELETED: "Case deleted",
   DOCUMENT_CREATED: "Document uploaded",
@@ -88,7 +91,6 @@ async function fileRequest(path, options = {}) {
 
 function CaseDetailsPage() {
   const { caseId } = useParams();
-  const navigate = useNavigate();
 
   const [caseData, setCaseData] = useState(null);
   const [assignments, setAssignments] = useState([]);
@@ -107,6 +109,17 @@ function CaseDetailsPage() {
     description: "",
   });
   const [editErrors, setEditErrors] = useState({});
+
+  const [isSubmitConfirmOpen, setIsSubmitConfirmOpen] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState("");
+
+  const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
+  const [officersList, setOfficersList] = useState([]);
+  const [selectedOfficerId, setSelectedOfficerId] = useState("");
+  const [assigning, setAssigning] = useState(false);
+  const [assignError, setAssignError] = useState("");
+  const [assignSuccess, setAssignSuccess] = useState("");
 
   const loadCase = useCallback(async () => {
     setLoading(true);
@@ -168,13 +181,128 @@ function CaseDetailsPage() {
     }
   }, [caseData, loadDocuments, loadActivity]);
 
+  const currentOfficer = assignments.find(
+    (a) => String(a.assignment_role).toLowerCase() === "officer"
+  );
+
   const primaryAssignee =
     caseData?.assignee_name ||
     caseData?.assignee_username ||
-    (assignments.length > 0
-      ? assignments[0].full_name || assignments[0].username
-      : null) ||
+    currentOfficer?.full_name ||
+    currentOfficer?.username ||
     null;
+
+  const currentUser = (() => {
+    try {
+      return JSON.parse(localStorage.getItem("user") || "{}");
+    } catch {
+      return {};
+    }
+  })();
+
+  const currentRole =
+    typeof currentUser.role === "string" ? currentUser.role.toUpperCase() : "";
+  const isAdmin = currentRole === "ADMIN";
+
+  const loadOfficers = useCallback(async () => {
+    try {
+      const data = await apiFetch("/users/officers");
+      setOfficersList(data.officers || []);
+      const currentId = currentOfficer?.user_id;
+      if (currentId != null) {
+        setSelectedOfficerId(String(currentId));
+      }
+    } catch {
+      setOfficersList([]);
+    }
+  }, [currentOfficer?.user_id]);
+
+  const handleOpenAssignModal = () => {
+    setAssignError("");
+    setAssignSuccess("");
+    loadOfficers();
+    setIsAssignModalOpen(true);
+  };
+
+  const handleCloseAssignModal = () => {
+    if (assigning) {
+      return;
+    }
+    setIsAssignModalOpen(false);
+    setAssignError("");
+    setAssignSuccess("");
+  };
+
+  const handleAssign = async () => {
+    if (!selectedOfficerId) {
+      setAssignError("Please select an investigating officer.");
+      return;
+    }
+    try {
+      setAssigning(true);
+      setAssignError("");
+      setAssignSuccess("");
+      const data = await apiFetch(`/cases/${caseId}/assignments`, {
+        method: "POST",
+        body: JSON.stringify({
+          userId: Number(selectedOfficerId),
+          assignmentRole: "officer",
+        }),
+      });
+      if (!data.success) {
+        throw new Error(data.message || "Failed to assign officer");
+      }
+      setAssignments(data.assignments || []);
+      setAssignSuccess(data.message || "Officer assigned");
+      setCaseData(null);
+      setIsAssignModalOpen(false);
+      await loadCase();
+    } catch (err) {
+      setAssignError(err.message || "Failed to assign officer");
+    } finally {
+      setAssigning(false);
+    }
+  };
+
+  const handleUnassign = async () => {
+    if (!currentOfficer?.user_id) {
+      return;
+    }
+    if (!window.confirm("Remove this investigating officer from the case?")) {
+      return;
+    }
+    try {
+      setAssigning(true);
+      setAssignError("");
+      setAssignSuccess("");
+      const data = await apiFetch(
+        `/cases/${caseId}/assignments/${currentOfficer.user_id}`,
+        { method: "DELETE" }
+      );
+      if (!data.success) {
+        throw new Error(data.message || "Failed to unassign officer");
+      }
+      setAssignments(data.assignments || []);
+      setAssignSuccess("Officer unassigned");
+      setCaseData(null);
+      await loadCase();
+    } catch (err) {
+      setAssignError(err.message || "Failed to unassign officer");
+    } finally {
+      setAssigning(false);
+    }
+  };
+
+  const canSubmitForReview =
+    currentUser.role === "OFFICER" &&
+    ["open", "in_progress", "returned"].includes(caseData?.status) &&
+    ((caseData?.assigned_to != null &&
+      Number(caseData.assigned_to) === Number(currentUser.id)) ||
+      assignments.some(
+        (a) =>
+          Number(a.user_id) === Number(currentUser.id) &&
+          a.assignment_role === "officer"
+      ));
 
   const handleOpenEdit = () => {
     setEditForm({
@@ -246,6 +374,38 @@ function CaseDetailsPage() {
     setEditErrors({});
   };
 
+  const handleOpenSubmitConfirm = () => {
+    setSubmitError("");
+    setIsSubmitConfirmOpen(true);
+  };
+
+  const handleCloseSubmitConfirm = () => {
+    if (submitting) {
+      return;
+    }
+    setIsSubmitConfirmOpen(false);
+    setSubmitError("");
+  };
+
+  const handleSubmitForReview = async () => {
+    try {
+      setSubmitting(true);
+      setSubmitError("");
+      const data = await apiFetch(`/cases/${caseId}/submit-for-review`, {
+        method: "POST",
+      });
+      if (!data.success) {
+        throw new Error(data.message || "Failed to submit case for review");
+      }
+      setCaseData(data.case);
+      setIsSubmitConfirmOpen(false);
+    } catch (err) {
+      setSubmitError(err.message || "Failed to submit case for review");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const downloadDocument = async (doc) => {
     try {
       const response = await fileRequest(`/documents/${doc.id}/download`);
@@ -262,31 +422,12 @@ function CaseDetailsPage() {
     }
   };
 
-  const logout = async () => {
-    try {
-      await apiFetch("/auth/logout", { method: "POST" });
-    } catch {
-      /* ignore logout errors */
-    }
-    localStorage.removeItem("token");
-    localStorage.removeItem("user");
-    navigate("/login");
-  };
-
   if (loading) {
     return (
       <div className="case-details-page">
-        <nav className="navbar">
-          <div className="navbar-brand">
-            <span className="brand-icon">&#128274;</span>
-            <span className="brand-text">Secure DMS</span>
-          </div>
-        </nav>
-        <div className="dashboard-body">
-          <main className="main-content">
+        <AppLayout>
             <div className="cases-message">Loading case details...</div>
-          </main>
-        </div>
+        </AppLayout>
       </div>
     );
   }
@@ -295,31 +436,7 @@ function CaseDetailsPage() {
     const isNotFound = /not found/i.test(error);
     return (
       <div className="case-details-page">
-        <nav className="navbar">
-          <div className="navbar-brand">
-            <span className="brand-icon">&#128274;</span>
-            <span className="brand-text">Secure DMS</span>
-          </div>
-          <div className="navbar-right">
-            <button className="logout-button" onClick={logout}>
-              Logout
-            </button>
-          </div>
-        </nav>
-        <div className="dashboard-body">
-          <aside className="sidebar">
-            <NavLink className={({ isActive }) => "sidebar-item" + (isActive ? " active" : "")} to="/dashboard">Dashboard</NavLink>
-            <NavLink className={({ isActive }) => "sidebar-item" + (isActive ? " active" : "")} to="/cases">Cases</NavLink>
-            <NavLink className={({ isActive }) => "sidebar-item" + (isActive ? " active" : "")} to="/documents">Documents</NavLink>
-            <NavLink className={({ isActive }) => "sidebar-item" + (isActive ? " active" : "")} to="/ai-assistant">AI Assistant</NavLink>
-            <NavLink className={({ isActive }) => "sidebar-item" + (isActive ? " active" : "")} to="/search">Search</NavLink>
-            <NavLink className={({ isActive }) => "sidebar-item" + (isActive ? " active" : "")} to="/audit-logs">Audit Logs</NavLink>
-            {JSON.parse(localStorage.getItem("user") || "{}").role ===
-              "ADMIN" && (
-              <NavLink className={({ isActive }) => "sidebar-item" + (isActive ? " active" : "")} to="/users">User Management</NavLink>
-            )}
-          </aside>
-          <main className="main-content">
+        <AppLayout>
             <div className="page-heading">
               <div className="page-heading-row">
                 <div>
@@ -341,90 +458,14 @@ function CaseDetailsPage() {
                 </Link>
               </div>
             </div>
-          </main>
-        </div>
+        </AppLayout>
       </div>
     );
   }
 
   return (
     <div className="case-details-page">
-      <nav className="navbar">
-        <div className="navbar-brand">
-          <span className="brand-icon">&#128274;</span>
-          <span className="brand-text">Secure DMS</span>
-        </div>
-        <div className="navbar-right">
-          <button className="logout-button" onClick={logout}>
-            Logout
-          </button>
-        </div>
-      </nav>
-
-      <div className="dashboard-body">
-        <aside className="sidebar">
-          <NavLink
-            className={({ isActive }) =>
-              "sidebar-item" + (isActive ? " active" : "")
-            }
-            to="/dashboard"
-          >
-            Dashboard
-          </NavLink>
-          <NavLink
-            className={({ isActive }) =>
-              "sidebar-item" + (isActive ? " active" : "")
-            }
-            to="/cases"
-          >
-            Cases
-          </NavLink>
-          <NavLink
-            className={({ isActive }) =>
-              "sidebar-item" + (isActive ? " active" : "")
-            }
-            to="/documents"
-          >
-            Documents
-          </NavLink>
-          <NavLink
-            className={({ isActive }) =>
-              "sidebar-item" + (isActive ? " active" : "")
-            }
-            to="/ai-assistant"
-          >
-            AI Assistant
-          </NavLink>
-          <NavLink
-            className={({ isActive }) =>
-              "sidebar-item" + (isActive ? " active" : "")
-            }
-            to="/search"
-          >
-            Search
-          </NavLink>
-          <NavLink
-            className={({ isActive }) =>
-              "sidebar-item" + (isActive ? " active" : "")
-            }
-            to="/audit-logs"
-          >
-            Audit Logs
-          </NavLink>
-          {JSON.parse(localStorage.getItem("user") || "{}").role ===
-            "ADMIN" && (
-            <NavLink
-              className={({ isActive }) =>
-                "sidebar-item" + (isActive ? " active" : "")
-              }
-              to="/users"
-            >
-              User Management
-            </NavLink>
-          )}
-        </aside>
-
-        <main className="main-content">
+      <AppLayout>
           {error && caseData && (
             <div className="cases-error">{error}</div>
           )}
@@ -452,6 +493,14 @@ function CaseDetailsPage() {
                 >
                   {titleCase(caseData.status)}
                 </span>
+                {canSubmitForReview && (
+                  <button
+                    className="submit-review-button"
+                    onClick={handleOpenSubmitConfirm}
+                  >
+                    Submit for Review
+                  </button>
+                )}
                 <button className="edit-case-button" onClick={handleOpenEdit}>
                   &#9998; Edit Case
                 </button>
@@ -504,6 +553,75 @@ function CaseDetailsPage() {
                   {formatDate(caseData.updated_at)}
                 </span>
               </div>
+            </div>
+          </div>
+
+          <div className="assignment-panel">
+            <div className="assignment-panel-header">
+              <div>
+                <h3 className="section-title">Investigating Officer</h3>
+                <p className="assignment-panel-subtitle">
+                  The officer responsible for investigating this case.
+                </p>
+              </div>
+            </div>
+
+            <div className="assignment-panel-body">
+              <div className="assignment-current">
+                <span className="assignment-current-label">Assigned Officer</span>
+                <span className="assignment-current-name">
+                  {primaryAssignee || "None — no officer assigned"}
+                </span>
+              </div>
+
+              {isAdmin ? (
+                <div className="assignment-actions">
+                  {currentOfficer ? (
+                    <>
+                      <button
+                        className="assign-officer-button"
+                        onClick={handleOpenAssignModal}
+                        disabled={assigning}
+                      >
+                        Reassign Officer
+                      </button>
+                      <button
+                        className="unassign-officer-button"
+                        onClick={handleUnassign}
+                        disabled={assigning}
+                      >
+                        Unassign Officer
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      className="assign-officer-button"
+                      onClick={handleOpenAssignModal}
+                      disabled={assigning}
+                    >
+                      Assign Officer
+                    </button>
+                  )}
+                  {assignError && (
+                    <span className="assignment-message assignment-error">
+                      {assignError}
+                    </span>
+                  )}
+                  {assignSuccess && (
+                    <span className="assignment-message assignment-success">
+                      {assignSuccess}
+                    </span>
+                  )}
+                </div>
+              ) : (
+                currentOfficer && (
+                  <div className="assignment-assigned-note">
+                    {currentRole === "OFFICER"
+                      ? "You are assigned to this case."
+                      : null}
+                  </div>
+                )
+              )}
             </div>
           </div>
 
@@ -789,8 +907,159 @@ function CaseDetailsPage() {
               </div>
             </div>
           )}
-        </main>
-      </div>
+
+          {isSubmitConfirmOpen && (
+            <div
+              className="modal-overlay"
+              onClick={handleCloseSubmitConfirm}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="submit-review-title"
+            >
+              <div
+                className="modal-content"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="modal-header">
+                  <div>
+                    <h2 id="submit-review-title" className="modal-title">
+                      Submit for Review
+                    </h2>
+                    <p className="modal-subtitle">
+                      Submit this case to the reviewer queue?
+                    </p>
+                  </div>
+                  <button
+                    className="modal-close"
+                    onClick={handleCloseSubmitConfirm}
+                    aria-label="Close"
+                    disabled={submitting}
+                  >
+                    &times;
+                  </button>
+                </div>
+
+                <p className="submit-review-note">
+                  Once submitted, this case will be set to &quot;Under
+                  Review&quot; and queued for a reviewer to approve, reject,
+                  or return it.
+                </p>
+
+                {submitError && (
+                  <div className="cases-error">{submitError}</div>
+                )}
+
+                <div className="modal-actions">
+                  <button
+                    type="button"
+                    className="cancel-button"
+                    onClick={handleCloseSubmitConfirm}
+                    disabled={submitting}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="submit-review-confirm-button"
+                    onClick={handleSubmitForReview}
+                    disabled={submitting}
+                  >
+                    {submitting ? "Submitting..." : "Confirm Submit"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {isAssignModalOpen && (
+            <div
+              className="modal-overlay"
+              onClick={handleCloseAssignModal}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="assign-officer-title"
+            >
+              <div
+                className="modal-content"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="modal-header">
+                  <div>
+                    <h2 id="assign-officer-title" className="modal-title">
+                      {currentOfficer ? "Reassign Officer" : "Assign Officer"}
+                    </h2>
+                    <p className="modal-subtitle">
+                      Select an active investigating officer for case{" "}
+                      {caseData.case_number}.
+                    </p>
+                  </div>
+                  <button
+                    className="modal-close"
+                    onClick={handleCloseAssignModal}
+                    aria-label="Close"
+                    disabled={assigning}
+                  >
+                    &times;
+                  </button>
+                </div>
+
+                <p className="submit-review-note">
+                  Assigning or reassigning will set this officer as the current
+                  investigating officer for the case and log the change for
+                  audit.
+                </p>
+
+                {assignError && (
+                  <div className="cases-error">{assignError}</div>
+                )}
+
+                <div className="form-group">
+                  <label className="form-label" htmlFor="assign-officer-select">
+                    Investigating Officer <span className="required-mark">*</span>
+                  </label>
+                  <select
+                    id="assign-officer-select"
+                    className="form-input"
+                    value={selectedOfficerId}
+                    onChange={(e) => setSelectedOfficerId(e.target.value)}
+                    disabled={assigning}
+                  >
+                    <option value="">Select an officer...</option>
+                    {officersList.map((o) => (
+                      <option key={o.id} value={String(o.id)}>
+                        {o.full_name || o.username}
+                        {o.email ? ` (${o.email})` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="modal-actions">
+                  <button
+                    type="button"
+                    className="cancel-button"
+                    onClick={handleCloseAssignModal}
+                    disabled={assigning}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="assign-officer-confirm-button"
+                    onClick={handleAssign}
+                    disabled={assigning}
+                  >
+                    {assigning
+                      ? "Saving..."
+                      : currentOfficer
+                      ? "Confirm Reassign"
+                      : "Confirm Assignment"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+      </AppLayout>
     </div>
   );
 }

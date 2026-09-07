@@ -1,6 +1,7 @@
 ﻿import { useEffect, useState } from "react";
-import { NavLink, Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { apiFetch } from "../api/api";
+import AppLayout from "../components/AppLayout";
 import "./CasesPage.css";
 
 const statusFilters = [
@@ -30,8 +31,6 @@ const priorityOptions = [
 ];
 
 function CasesPage() {
-  const navigate = useNavigate();
-
   const [cases, setCases] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
@@ -235,20 +234,6 @@ function CasesPage() {
     setFormErrors({});
   };
 
-  const handleLogout = async () => {
-    try {
-      await apiFetch("/auth/logout", {
-        method: "POST",
-      });
-    } catch (err) {
-      console.error("Logout request failed:", err);
-    } finally {
-      localStorage.removeItem("token");
-      localStorage.removeItem("user");
-      navigate("/login");
-    }
-  };
-
   const formatStatus = (status) => {
     if (!status) {
       return "Unknown";
@@ -289,140 +274,9 @@ function CasesPage() {
     );
   };
 
-  const getDisplayName = () => {
-    try {
-      const user = JSON.parse(
-        localStorage.getItem("user") || "{}"
-      );
-
-      return (
-        user.full_name ||
-        user.fullName ||
-        user.username ||
-        user.email ||
-        "User"
-      );
-    } catch {
-      return "User";
-    }
-  };
-
-  const displayName = getDisplayName();
-
   return (
     <div className="cases-page">
-      <nav className="navbar">
-        <div className="navbar-brand">
-          <span className="brand-icon">&#128274;</span>
-          <span className="brand-text">Secure DMS</span>
-        </div>
-
-        <div className="navbar-right">
-          <button
-            className="icon-button"
-            aria-label="Notifications"
-          >
-            &#128276;
-          </button>
-
-          <div className="user-area">
-            <span className="user-avatar">
-              {displayName.charAt(0).toUpperCase()}
-            </span>
-
-            <span className="user-name">
-              {displayName}
-            </span>
-          </div>
-
-          <button
-            className="logout-button"
-            onClick={handleLogout}
-          >
-            Logout
-          </button>
-        </div>
-      </nav>
-
-      <div className="dashboard-body">
-        <aside className="sidebar">
-          <NavLink
-            className={({ isActive }) =>
-              "sidebar-item" + (isActive ? " active" : "")
-            }
-            to="/dashboard"
-          >
-            Dashboard
-          </NavLink>
-
-          <NavLink
-            className={({ isActive }) =>
-              "sidebar-item" + (isActive ? " active" : "")
-            }
-            to="/cases"
-          >
-            Cases
-          </NavLink>
-
-          <NavLink
-            className={({ isActive }) =>
-              "sidebar-item" + (isActive ? " active" : "")
-            }
-            to="/documents"
-          >
-            Documents
-          </NavLink>
-
-          <NavLink
-            className={({ isActive }) =>
-              "sidebar-item" + (isActive ? " active" : "")
-            }
-            to="/ai-assistant"
-          >
-            AI Assistant
-          </NavLink>
-
-          <NavLink
-            className={({ isActive }) =>
-              "sidebar-item" + (isActive ? " active" : "")
-            }
-            to="/search"
-          >
-            Search
-          </NavLink>
-
-          <NavLink
-            className={({ isActive }) =>
-              "sidebar-item" + (isActive ? " active" : "")
-            }
-            to="/audit-logs"
-          >
-            Audit Logs
-          </NavLink>
-
-          {JSON.parse(localStorage.getItem("user") || "{}").role ===
-            "ADMIN" && (
-            <NavLink
-              className={({ isActive }) =>
-                "sidebar-item" + (isActive ? " active" : "")
-              }
-              to="/users"
-            >
-              User Management
-            </NavLink>
-          )}
-
-          <NavLink
-            className={({ isActive }) =>
-              "sidebar-item" + (isActive ? " active" : "")
-            }
-            to="/passkey"
-          >
-            Passkey
-          </NavLink>
-        </aside>
-
-        <main className="main-content">
+      <AppLayout>
           <div className="page-heading">
             <h1 className="page-title">Cases</h1>
 
@@ -888,8 +742,7 @@ function CasesPage() {
               </div>
             </div>
           )}
-        </main>
-      </div>
+        </AppLayout>
     </div>
   );
 }

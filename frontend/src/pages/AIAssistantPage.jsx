@@ -1,6 +1,6 @@
 ﻿import { useEffect, useState } from "react";
-import { NavLink } from "react-router-dom";
 import { apiFetch } from "../api/api";
+import AppLayout from "../components/AppLayout";
 import "./AIAssistantPage.css";
 
 function AIAssistantPage() {
@@ -137,105 +137,7 @@ function AIAssistantPage() {
 
   return (
     <div className="ai-page">
-      <nav className="navbar">
-        <div className="navbar-brand">
-          <span className="brand-icon">&#128274;</span>
-          <span className="brand-text">Secure DMS</span>
-        </div>
-
-        <div className="navbar-right">
-          <button className="icon-button" aria-label="Notifications">
-            &#128276;
-          </button>
-
-          <div className="user-area">
-            <span className="user-avatar">A</span>
-            <span className="user-name">Admin User</span>
-          </div>
-
-          <button
-            className="logout-button"
-            onClick={() => {
-              localStorage.removeItem("token");
-              localStorage.removeItem("user");
-              window.location.href = "/login";
-            }}
-          >
-            Logout
-          </button>
-        </div>
-      </nav>
-
-      <div className="dashboard-body">
-        <aside className="sidebar">
-          <NavLink
-            className={({ isActive }) =>
-              "sidebar-item" + (isActive ? " active" : "")
-            }
-            to="/dashboard"
-          >
-            Dashboard
-          </NavLink>
-
-          <NavLink
-            className={({ isActive }) =>
-              "sidebar-item" + (isActive ? " active" : "")
-            }
-            to="/cases"
-          >
-            Cases
-          </NavLink>
-
-          <NavLink
-            className={({ isActive }) =>
-              "sidebar-item" + (isActive ? " active" : "")
-            }
-            to="/documents"
-          >
-            Documents
-          </NavLink>
-
-          <NavLink
-            className={({ isActive }) =>
-              "sidebar-item" + (isActive ? " active" : "")
-            }
-            to="/ai-assistant"
-          >
-            AI Assistant
-          </NavLink>
-
-          <NavLink
-            className={({ isActive }) =>
-              "sidebar-item" + (isActive ? " active" : "")
-            }
-            to="/search"
-          >
-            Search
-          </NavLink>
-
-          <NavLink
-            className={({ isActive }) =>
-              "sidebar-item" + (isActive ? " active" : "")
-            }
-            to="/audit-logs"
-          >
-            Audit Logs
-          </NavLink>
-
-          {JSON.parse(localStorage.getItem("user") || "{}").role ===
-            "ADMIN" && (
-            <NavLink
-              className={({ isActive }) =>
-                "sidebar-item" + (isActive ? " active" : "")
-              }
-              to="/users"
-            >
-              User Management
-            </NavLink>
-          )}
-        </aside>
-
-        <main className="main-content">
+      <AppLayout>
           <div className="page-heading">
             <h1 className="page-title">AI Assistant</h1>
 
@@ -356,8 +258,7 @@ function AIAssistantPage() {
               </button>
             </div>
           </div>
-        </main>
-      </div>
+      </AppLayout>
     </div>
   );
 }

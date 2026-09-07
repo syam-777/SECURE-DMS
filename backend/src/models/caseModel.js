@@ -9,6 +9,7 @@ const CASE_STATUSES = [
   "under_review",
   "closed",
   "archived",
+  "returned",
 ];
 
 /**
@@ -180,6 +181,8 @@ async function findAllCases({
   priority = "",
   sort = "id",
   order = "asc",
+  officerId = null,
+  ownerUserId = null,
 } = {}) {
   const safePage = Math.max(1, Number(page) || 1);
   const safeLimit = Math.min(100, Math.max(1, Number(limit) || 20));
@@ -203,6 +206,29 @@ async function findAllCases({
   if (priority && isValidPriority(priority)) {
     where.push("c.priority = ?");
     params.push(priority);
+  }
+  if (officerId) {
+    // Assignment-first: an officer only sees cases they are the primary
+    // assignee of or are assigned to as an officer. Being the creator is not
+    // an investigation-access bypass.
+    const scopedId = Number(officerId);
+    if (Number.isInteger(scopedId) && scopedId > 0) {
+      where.push(
+        "(c.assigned_to = ? OR EXISTS (" +
+          "SELECT 1 FROM case_assignments ca " +
+          "WHERE ca.case_id = c.id AND ca.user_id = ? AND ca.assignment_role = 'officer'" +
+          "))"
+      );
+      params.push(scopedId, scopedId);
+    }
+  }
+  if (ownerUserId) {
+    // Regular users only see cases they created.
+    const scopedId = Number(ownerUserId);
+    if (Number.isInteger(scopedId) && scopedId > 0) {
+      where.push("c.created_by = ?");
+      params.push(scopedId);
+    }
   }
 
   const whereSql = where.length ? "WHERE " + where.join(" AND ") : "";
@@ -288,6 +314,8 @@ async function searchCases({
   caseType = "",
   sort = "id",
   order = "asc",
+  officerId = null,
+  ownerUserId = null,
 } = {}) {
   const safePage = Math.max(1, Number(page) || 1);
   const safeLimit = Math.min(100, Math.max(1, Number(limit) || 20));
@@ -315,6 +343,27 @@ async function searchCases({
   if (caseType && String(caseType).trim()) {
     where.push("c.case_type = ?");
     params.push(String(caseType).trim());
+  }
+  if (officerId) {
+    // Assignment-first: an officer only searches cases they are the primary
+    // assignee of or are assigned to as an officer.
+    const scopedId = Number(officerId);
+    if (Number.isInteger(scopedId) && scopedId > 0) {
+      where.push(
+        "(c.assigned_to = ? OR EXISTS (" +
+          "SELECT 1 FROM case_assignments sca " +
+          "WHERE sca.case_id = c.id AND sca.user_id = ? AND sca.assignment_role = 'officer'" +
+          "))"
+      );
+      params.push(scopedId, scopedId);
+    }
+  }
+  if (ownerUserId) {
+    const scopedId = Number(ownerUserId);
+    if (Number.isInteger(scopedId) && scopedId > 0) {
+      where.push("c.created_by = ?");
+      params.push(scopedId);
+    }
   }
 
   const whereSql = where.length ? "WHERE " + where.join(" AND ") : "";
@@ -464,17 +513,35 @@ async function assignmentExists(caseId, userId, assignmentRole) {
 }
 
 /**
+ * Check whether a user is assigned to a case as an officer.
+ * @param {number|string} caseId
+ * @param {number|string} userId
+ * @returns {Promise<boolean>}
+ */
+async function hasOfficerAssignment(caseId, userId) {
+  const [rows] = await pool.query(
+    "SELECT id FROM case_assignments " +
+      "WHERE case_id = ? AND user_id = ? AND assignment_role = 'officer' LIMIT 1",
+    [caseId, userId]
+  );
+  return rows.length > 0;
+}
+
+/**
  * Create a new assignment of a user to a case with a role label.
+ * Optional `connection` lets the caller run this inside a transaction.
  * @param {{
  *   caseId: number,
  *   userId: number,
  *   assignmentRole: string,
  *   assignedBy: number
  * }} data
+ * @param {object} [connection]
  * @returns {Promise<number>} the new assignment id
  */
-async function createAssignment(data) {
-  const [result] = await pool.query(
+async function createAssignment(data, connection) {
+  const exec = connection || pool;
+  const [result] = await exec.query(
     "INSERT INTO case_assignments (case_id, user_id, assignment_role, assigned_by) " +
       "VALUES (?, ?, ?, ?)",
     [data.caseId, data.userId, data.assignmentRole, data.assignedBy]
@@ -484,22 +551,42 @@ async function createAssignment(data) {
 
 /**
  * Remove a specific assignment (case + user, optionally filtered by role).
+ * Optional `connection` lets the caller run this inside a transaction.
  * @param {number|string} caseId
  * @param {number|string} userId
  * @param {string} [assignmentRole]
+ * @param {object} [connection]
  * @returns {Promise<boolean>} true if a row was deleted
  */
-async function deleteAssignment(caseId, userId, assignmentRole) {
+async function deleteAssignment(caseId, userId, assignmentRole, connection) {
+  const exec = connection || pool;
   if (assignmentRole != null && String(assignmentRole).trim()) {
-    const [result] = await pool.query(
+    const [result] = await exec.query(
       "DELETE FROM case_assignments WHERE case_id = ? AND user_id = ? AND assignment_role = ?",
       [caseId, userId, assignmentRole]
     );
     return result.affectedRows > 0;
   }
-  const [result] = await pool.query(
+  const [result] = await exec.query(
     "DELETE FROM case_assignments WHERE case_id = ? AND user_id = ?",
     [caseId, userId]
+  );
+  return result.affectedRows > 0;
+}
+
+/**
+ * Set the primary assigned officer for a case (cases.assigned_to).
+ * Optional `connection` lets the caller run this inside a transaction.
+ * @param {number|string} caseId
+ * @param {number|string|null} userId
+ * @param {object} [connection]
+ * @returns {Promise<boolean>} true if a row was updated
+ */
+async function setCaseAssignedTo(caseId, userId, connection) {
+  const exec = connection || pool;
+  const [result] = await exec.query(
+    "UPDATE cases SET assigned_to = ? WHERE id = ?",
+    [userId != null ? Number(userId) : null, caseId]
   );
   return result.affectedRows > 0;
 }
@@ -518,9 +605,11 @@ module.exports = {
   searchCases,
   updateCase,
   updateCaseStatus,
+  setCaseAssignedTo,
   deleteCase,
   findAssignmentsByCase,
   assignmentExists,
+  hasOfficerAssignment,
   createAssignment,
   deleteAssignment,
 };

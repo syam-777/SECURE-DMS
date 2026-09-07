@@ -10,6 +10,9 @@ const {
   activateUserById,
   changeUserRole,
 } = require("../controllers/userController");
+const {
+  listActiveOfficers,
+} = require("../controllers/caseController");
 const { authenticate, authorize } = require("../middleware/authMiddleware");
 const {
   adminCreateUserValidators,
@@ -29,6 +32,14 @@ router.get(
   paginationValidators,
   validateRequest,
   listUsers
+);
+
+// GET /api/users/officers — active OFFICER users (for the ADMIN assignment
+// picker). Gated by cases:assign, which is held only by ADMIN.
+router.get(
+  "/officers",
+  authorize("cases:assign"),
+  listActiveOfficers
 );
 
 // GET /api/users/:id — get single user

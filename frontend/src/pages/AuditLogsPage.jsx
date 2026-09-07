@@ -1,7 +1,7 @@
 ﻿import { useEffect, useMemo, useState } from "react";
-import { NavLink, useNavigate } from "react-router-dom";
 import "./AuditLogsPage.css";
 import { apiFetch } from "../api/api";
+import AppLayout from "../components/AppLayout";
 
 const formatTimestamp = (value) => {
   if (!value) return "—";
@@ -74,8 +74,6 @@ const getStatus = (action) => {
 };
 
 function AuditLogsPage() {
-  const navigate = useNavigate();
-
   const [logs, setLogs] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [actionFilter, setActionFilter] = useState("All Actions");
@@ -179,117 +177,9 @@ function AuditLogsPage() {
     (log) => getStatus(log.action) === "Security"
   ).length;
 
-  const handleLogout = async () => {
-    try {
-      await apiFetch("/auth/logout", {
-        method: "POST",
-      });
-    } catch {
-      // Even if the audit logout request fails, clear the local session.
-    } finally {
-      localStorage.removeItem("token");
-      localStorage.removeItem("user");
-      navigate("/login");
-    }
-  };
-
   return (
     <div className="audit-page">
-      <nav className="navbar">
-        <div className="navbar-brand">
-          <span className="brand-icon">&#128274;</span>
-          <span className="brand-text">Secure DMS</span>
-        </div>
-
-        <div className="navbar-right">
-          <button className="icon-button" aria-label="Notifications">
-            &#128276;
-          </button>
-
-          <div className="user-area">
-            <span className="user-avatar">A</span>
-            <span className="user-name">Admin</span>
-          </div>
-
-          <button
-            className="logout-button"
-            onClick={handleLogout}
-          >
-            Logout
-          </button>
-        </div>
-      </nav>
-
-      <div className="dashboard-body">
-        <aside className="sidebar">
-          <NavLink
-            className={({ isActive }) =>
-              "sidebar-item" + (isActive ? " active" : "")
-            }
-            to="/dashboard"
-          >
-            Dashboard
-          </NavLink>
-
-          <NavLink
-            className={({ isActive }) =>
-              "sidebar-item" + (isActive ? " active" : "")
-            }
-            to="/cases"
-          >
-            Cases
-          </NavLink>
-
-          <NavLink
-            className={({ isActive }) =>
-              "sidebar-item" + (isActive ? " active" : "")
-            }
-            to="/documents"
-          >
-            Documents
-          </NavLink>
-
-          <NavLink
-            className={({ isActive }) =>
-              "sidebar-item" + (isActive ? " active" : "")
-            }
-            to="/ai-assistant"
-          >
-            AI Assistant
-          </NavLink>
-
-          <NavLink
-            className={({ isActive }) =>
-              "sidebar-item" + (isActive ? " active" : "")
-            }
-            to="/search"
-          >
-            Search
-          </NavLink>
-
-          <NavLink
-            className={({ isActive }) =>
-              "sidebar-item" + (isActive ? " active" : "")
-            }
-            to="/audit-logs"
-          >
-            Audit Logs
-          </NavLink>
-
-          {JSON.parse(localStorage.getItem("user") || "{}").role ===
-            "ADMIN" && (
-            <NavLink
-              className={({ isActive }) =>
-                "sidebar-item" + (isActive ? " active" : "")
-              }
-              to="/users"
-            >
-              User Management
-            </NavLink>
-          )}
-        </aside>
-
-        <main className="main-content">
+      <AppLayout>
           <div className="page-heading">
             <h1 className="page-title">Audit Logs</h1>
             <p className="page-description">
@@ -459,8 +349,7 @@ function AuditLogsPage() {
             Audit logs are used for accountability, security monitoring, and
             investigation of suspicious activity.
           </div>
-        </main>
-      </div>
+      </AppLayout>
     </div>
   );
 }

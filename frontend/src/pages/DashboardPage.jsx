@@ -1,11 +1,10 @@
-﻿import { NavLink, Link, useNavigate } from "react-router-dom";
+﻿import { Link } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { apiFetch } from "../api/api";
+import AppLayout from "../components/AppLayout";
 import "./DashboardPage.css";
 
 function DashboardPage() {
-  const navigate = useNavigate();
-
   const [dashboardData, setDashboardData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -31,36 +30,25 @@ function DashboardPage() {
     loadDashboard();
   }, []);
 
-  const handleLogout = async () => {
+  const getDisplayName = () => {
     try {
-      await apiFetch("/auth/logout", {
-        method: "POST",
-      });
-    } catch (error) {
-      console.error("Logout request failed:", error);
-    } finally {
-      localStorage.removeItem("token");
-      localStorage.removeItem("user");
-      navigate("/login");
-    }
-  };
+      const stored = JSON.parse(
+        localStorage.getItem("user") || "{}"
+      );
 
-  const getCurrentUser = () => {
-    try {
-      return JSON.parse(localStorage.getItem("user") || "{}");
+      return (
+        stored.full_name ||
+        stored.fullName ||
+        stored.username ||
+        stored.email ||
+        "User"
+      );
     } catch {
-      return {};
+      return "User";
     }
   };
 
-  const user = getCurrentUser();
-
-  const displayName =
-    user.full_name ||
-    user.fullName ||
-    user.username ||
-    user.email ||
-    "User";
+  const displayName = getDisplayName();
 
   const formatDate = (dateValue) => {
     if (!dateValue) {
@@ -151,101 +139,8 @@ function DashboardPage() {
 
   return (
     <div className="dashboard-page">
-      <nav className="navbar">
-        <div className="navbar-brand">
-          <Link to="/dashboard">Secure DMS</Link>
-        </div>
-
-        <div className="navbar-links">
-          <NavLink
-            to="/dashboard"
-            className={({ isActive }) =>
-              isActive ? "nav-link active" : "nav-link"
-            }
-          >
-            Dashboard
-          </NavLink>
-
-          <NavLink
-            to="/cases"
-            className={({ isActive }) =>
-              isActive ? "nav-link active" : "nav-link"
-            }
-          >
-            Cases
-          </NavLink>
-
-          <NavLink
-            to="/documents"
-            className={({ isActive }) =>
-              isActive ? "nav-link active" : "nav-link"
-            }
-          >
-            Documents
-          </NavLink>
-
-          <NavLink
-            to="/ai-assistant"
-            className={({ isActive }) =>
-              isActive ? "nav-link active" : "nav-link"
-            }
-          >
-            AI Assistant
-          </NavLink>
-
-          <NavLink
-            to="/search"
-            className={({ isActive }) =>
-              isActive ? "nav-link active" : "nav-link"
-            }
-          >
-            Search
-          </NavLink>
-
-          <NavLink
-            to="/audit-logs"
-            className={({ isActive }) =>
-              isActive ? "nav-link active" : "nav-link"
-            }
-          >
-            Audit Logs
-          </NavLink>
-
-          {user.role === "ADMIN" && (
-            <NavLink
-              to="/users"
-              className={({ isActive }) =>
-                isActive ? "nav-link active" : "nav-link"
-              }
-            >
-              User Management
-            </NavLink>
-          )}
-
-          <NavLink
-            to="/passkey"
-            className={({ isActive }) =>
-              isActive ? "nav-link active" : "nav-link"
-            }
-          >
-            Passkey
-          </NavLink>
-        </div>
-
-        <div className="navbar-user">
-          <span className="user-name">{displayName}</span>
-
-          <button
-            className="logout-button"
-            onClick={handleLogout}
-          >
-            Logout
-          </button>
-        </div>
-      </nav>
-
-      <main className="main-content">
-        <div className="welcome-section">
+      <AppLayout>
+          <div className="welcome-section">
           <h1 className="welcome-title">
             Welcome back, {displayName}
           </h1>
@@ -436,7 +331,7 @@ function DashboardPage() {
             </ul>
           </section>
         </div>
-      </main>
+      </AppLayout>
     </div>
   );
 }

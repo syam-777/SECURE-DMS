@@ -1,6 +1,11 @@
 const fs = require("fs");
 const { logAuditEvent } = require("../models/auditLogModel");
-const { findCaseNumberById } = require("../models/caseModel");
+const { getUserWithRoleAndPermissions } = require("../models/userModel");
+const {
+  findCaseNumberById,
+  findCaseById,
+  hasOfficerAssignment,
+} = require("../models/caseModel");
 const { readDocumentText } = require("../services/documentContentService");
 const { summarizeText } = require("../services/aiService");
 const {
@@ -32,6 +37,90 @@ function safeVersion(version) {
   return rest;
 }
 
+/**
+ * Resolve the actor's DB role and, for OFFICER and USER roles, whether the
+ * actor may access the given document. ADMIN and REVIEWER are allowed by the
+ * existing RBAC model (ADMIN for oversight, REVIEWER for the review flow).
+ *
+ * OFFICER: allowed only for documents of cases they are assigned to, or
+ * documents they uploaded themselves.
+ * USER: allowed only for documents they uploaded, or documents attached to
+ * cases they created.
+ *
+ * @param {object} document document row (must include case_id, uploaded_by)
+ * @param {number|string} actorId
+ * @returns {Promise<object>} the DB actor row
+ */
+async function assertDocumentAccess(document, actorId) {
+  const actor = await getUserWithRoleAndPermissions(actorId);
+  if (!actor) {
+    throw httpError(401, "Authenticated user no longer exists");
+  }
+  if (actor.role === "ADMIN" || actor.role === "REVIEWER") {
+    return actor;
+  }
+
+  const uid = Number(actorId);
+
+  if (actor.role === "OFFICER") {
+    if (document.case_id != null) {
+      const caseRow = await findCaseById(document.case_id);
+      const assigned =
+        caseRow &&
+        ((caseRow.assigned_to != null &&
+          Number(caseRow.assigned_to) === uid) ||
+          (await hasOfficerAssignment(caseRow.id, actorId)));
+      if (assigned) {
+        return actor;
+      }
+    }
+    if (document.uploaded_by != null && Number(document.uploaded_by) === uid) {
+      return actor;
+    }
+    throw httpError(
+      403,
+      "You do not have access to this document"
+    );
+  }
+
+  if (actor.role === "USER") {
+    if (document.uploaded_by != null && Number(document.uploaded_by) === uid) {
+      return actor;
+    }
+    if (document.case_id != null) {
+      const caseRow = await findCaseById(document.case_id);
+      if (caseRow && Number(caseRow.created_by) === uid) {
+        return actor;
+      }
+    }
+    throw httpError(
+      403,
+      "You do not have access to this document"
+    );
+  }
+
+  return actor;
+}
+
+/**
+ * Compute the list/search scoping filters appropriate for the actor's DB role.
+ * @param {number|string} actorId
+ * @returns {Promise<{ officerId: number|null, ownerUserId: number|null }>}
+ */
+async function resolveDocumentListScope(actorId) {
+  const actor = await getUserWithRoleAndPermissions(actorId);
+  if (!actor) {
+    throw httpError(401, "Authenticated user no longer exists");
+  }
+  if (actor.role === "OFFICER") {
+    return { officerId: Number(actorId), ownerUserId: null };
+  }
+  if (actor.role === "USER") {
+    return { officerId: null, ownerUserId: Number(actorId) };
+  }
+  return { officerId: null, ownerUserId: null };
+}
+
 // ─── GET /api/documents ──────────────────────────────────────
 async function listDocuments(req, res, next) {
   try {
@@ -44,6 +133,9 @@ async function listDocuments(req, res, next) {
     const sort = (req.query.sort || "id").trim();
     const order = (req.query.order || "asc").trim().toLowerCase();
 
+    // Scoping from the DB role so officers/users only see what they may access.
+    const scope = await resolveDocumentListScope(req.user.id);
+
     const data = await findAllDocuments({
       page,
       limit,
@@ -53,6 +145,8 @@ async function listDocuments(req, res, next) {
       caseId,
       sort,
       order,
+      officerId: scope.officerId,
+      ownerUserId: scope.ownerUserId,
     });
 
     return res.json({ success: true, ...data });
@@ -69,6 +163,8 @@ async function getDocumentById(req, res, next) {
     if (!document) {
       throw httpError(404, "Document not found");
     }
+
+    await assertDocumentAccess(document, req.user.id);
 
     const currentVersion = await findDocumentVersion(
       docId,
@@ -103,6 +199,26 @@ async function uploadDocument(req, res, next) {
         cleanupFile(req.file.path);
         throw httpError(404, "Case not found");
       }
+
+      // Assignment-first document upload: an OFFICER may only attach
+      // investigation documents to a case they are assigned to.
+      const actor = await getUserWithRoleAndPermissions(uploadedById);
+      if (actor && actor.role === "OFFICER") {
+        const caseRow = await findCaseById(caseIdNum);
+        const assigned =
+          caseRow &&
+          ((caseRow.assigned_to != null &&
+            Number(caseRow.assigned_to) === Number(uploadedById)) ||
+            (await hasOfficerAssignment(caseRow.id, uploadedById)));
+        if (!assigned) {
+          cleanupFile(req.file.path);
+          throw httpError(
+            403,
+            "You are not assigned to this case and cannot upload investigation documents to it"
+          );
+        }
+      }
+
       resolvedCaseId = caseIdNum;
     }
 
@@ -167,6 +283,8 @@ async function downloadDocument(req, res, next) {
     if (document.status === "deleted") {
       throw httpError(404, "Document not found");
     }
+
+    await assertDocumentAccess(document, req.user.id);
 
     const currentVersion = await findDocumentVersion(
       docId,
@@ -258,6 +376,8 @@ async function createNewVersion(req, res, next) {
       throw httpError(400, "Cannot add versions to a deleted document");
     }
 
+    await assertDocumentAccess(document, req.user.id);
+
     let result;
     try {
       const checksum = await sha256File(req.file.path);
@@ -311,6 +431,8 @@ async function listVersions(req, res, next) {
       throw httpError(404, "Document not found");
     }
 
+    await assertDocumentAccess(document, req.user.id);
+
     const versions = await findVersionsByDocument(docId);
 
     return res.json({
@@ -333,6 +455,8 @@ async function getVersion(req, res, next) {
     if (!document) {
       throw httpError(404, "Document not found");
     }
+
+    await assertDocumentAccess(document, req.user.id);
 
     const version = await findDocumentVersion(docId, versionNumber);
     if (!version) {
@@ -362,6 +486,8 @@ async function downloadVersion(req, res, next) {
     if (document.status === "deleted") {
       throw httpError(404, "Document not found");
     }
+
+    await assertDocumentAccess(document, req.user.id);
 
     const version = await findDocumentVersion(docId, versionNumber);
     if (!version) {
@@ -406,6 +532,8 @@ async function verifyVersionIntegrity(req, res, next) {
     if (!document) {
       throw httpError(404, "Document not found");
     }
+
+    await assertDocumentAccess(document, req.user.id);
 
     const version = await findDocumentVersion(docId, versionNumber);
     if (!version) {
@@ -463,6 +591,13 @@ async function summarizeDocument(req, res, next) {
     const version = req.body.version != null ? Number(req.body.version) : null;
 
     // 1. Authorization has already succeeded (route middleware).
+    // 1a. Enforce case/ownership access for the document (officer/user scoping).
+    const docMeta = await findDocumentById(docId);
+    if (!docMeta) {
+      throw httpError(404, "Document not found");
+    }
+    await assertDocumentAccess(docMeta, req.user.id);
+
     // 2. Resolve the document and extract its text server-side.
     const content = await readDocumentText(docId, version);
 

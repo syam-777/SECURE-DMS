@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
-import { NavLink, Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import "./DocumentDetailsPage.css";
 import { apiFetch, API_BASE_URL } from "../api/api";
+import AppLayout from "../components/AppLayout";
 
 function formatDate(value) {
   return value ? new Date(value).toLocaleDateString("en-IN") : "-";
@@ -39,7 +40,7 @@ async function fileRequest(path, options = {}) {
 
 function DocumentDetailsPage() {
   const { documentId } = useParams();
-  const navigate = useNavigate();
+
   const [doc, setDoc] = useState(null);
   const [currentVersion, setCurrentVersion] = useState(null);
   const [versions, setVersions] = useState([]);
@@ -166,25 +167,12 @@ const [showPreview, setShowPreview] = useState(false);
     finally { setBusy(false); }
   };
 
-  const logout = async () => {
-    try { await apiFetch("/auth/logout", { method: "POST" }); } catch {}
-    localStorage.removeItem("token"); localStorage.removeItem("user"); navigate("/login");
-  };
-
-  if (loading) return <div className="document-details-page"><header className="topbar"><div className="brand">🔒 Secure DMS</div></header><main className="details-container"><p>Loading document...</p></main></div>;
-  if (error && !doc) return <div className="document-details-page"><header className="topbar"><div className="brand">🔒 Secure DMS</div></header><main className="details-container"><div className="error-message">{error}</div><Link to="/documents">← Back to Documents</Link></main></div>;
+  if (loading) return <div className="document-details-page"><AppLayout><main className="details-container"><p>Loading document...</p></main></AppLayout></div>;
+  if (error && !doc) return <div className="document-details-page"><AppLayout><main className="details-container"><div className="error-message">{error}</div><Link to="/documents">← Back to Documents</Link></main></AppLayout></div>;
 
   return (
     <div className="document-details-page">
-      <header className="topbar">
-        <div className="brand">🔒 Secure DMS</div>
-        <nav>
-          <NavLink to="/dashboard">Dashboard</NavLink><NavLink to="/cases">Cases</NavLink><NavLink to="/documents">Documents</NavLink>
-          <NavLink to="/ai-assistant">AI Assistant</NavLink><NavLink to="/search">Search</NavLink><NavLink to="/audit-logs">Audit Logs</NavLink>{JSON.parse(localStorage.getItem("user") || "{}").role === "ADMIN" && <NavLink to="/users">User Management</NavLink>}<NavLink to="/passkey">Passkey</NavLink>
-          <button onClick={logout}>Logout</button>
-        </nav>
-      </header>
-
+      <AppLayout>
       <main className="details-container">
         <Link to="/documents" className="back-link">← Back to Documents</Link>
         <h1>Document Details</h1>
@@ -268,6 +256,7 @@ const [showPreview, setShowPreview] = useState(false);
           )}
         </section>
       </main>
+      </AppLayout>
 
       {showPreview && (
         <div className="preview-modal" onClick={() => setShowPreview(false)}>

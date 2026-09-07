@@ -1,5 +1,6 @@
 const { searchCases } = require("../models/caseModel");
 const { searchDocuments } = require("../models/documentModel");
+const { getUserWithRoleAndPermissions } = require("../models/userModel");
 
 // ─── GET /api/search/cases ────────────────────────────────────
 async function searchCasesHandler(req, res, next) {
@@ -13,6 +14,19 @@ async function searchCasesHandler(req, res, next) {
     const sort = (req.query.sort || "id").trim();
     const order = (req.query.order || "asc").trim().toLowerCase();
 
+    // Officers only search cases they are assigned to (assignment-first);
+    // users only search cases they created.
+    let officerId = null;
+    let ownerUserId = null;
+    const actor = await getUserWithRoleAndPermissions(req.user.id);
+    if (actor) {
+      if (actor.role === "OFFICER") {
+        officerId = req.user.id;
+      } else if (actor.role === "USER") {
+        ownerUserId = req.user.id;
+      }
+    }
+
     const data = await searchCases({
       page,
       limit,
@@ -22,6 +36,8 @@ async function searchCasesHandler(req, res, next) {
       caseType,
       sort,
       order,
+      officerId,
+      ownerUserId,
     });
 
     return res.json({ success: true, ...data });
@@ -42,6 +58,13 @@ async function searchDocumentsHandler(req, res, next) {
     const sort = (req.query.sort || "id").trim();
     const order = (req.query.order || "asc").trim().toLowerCase();
 
+    // Scope from the DB role so officers/users only search what they may access.
+    const actor = await getUserWithRoleAndPermissions(req.user.id);
+    const officerId =
+      actor && actor.role === "OFFICER" ? req.user.id : null;
+    const ownerUserId =
+      actor && actor.role === "USER" ? req.user.id : null;
+
     const data = await searchDocuments({
       page,
       limit,
@@ -51,6 +74,8 @@ async function searchDocumentsHandler(req, res, next) {
       caseId,
       sort,
       order,
+      officerId,
+      ownerUserId,
     });
 
     return res.json({ success: true, ...data });

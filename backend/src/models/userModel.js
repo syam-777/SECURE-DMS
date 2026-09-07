@@ -232,6 +232,22 @@ async function deactivateUser(id) {
   return result.affectedRows > 0;
 }
 
+/**
+ * List all active users whose role is OFFICER, ordered by name. Used to
+ * populate the ADMIN officer-assignment picker. Never returns password_hash.
+ * @returns {Promise<object[]>}
+ */
+async function findActiveOfficers() {
+  const [rows] = await pool.query(
+    "SELECT u.id, u.username, u.email, u.full_name, u.is_active " +
+      "FROM users u " +
+      "JOIN roles r ON r.id = u.role_id " +
+      "WHERE r.name = 'OFFICER' AND u.is_active = TRUE " +
+      "ORDER BY u.full_name ASC, u.username ASC"
+  );
+  return rows;
+}
+
 module.exports = {
   findUserByEmail,
   findUserById,
@@ -244,4 +260,5 @@ module.exports = {
   deactivateUser,
   usernameExists,
   getUserWithRoleAndPermissions,
+  findActiveOfficers,
 };

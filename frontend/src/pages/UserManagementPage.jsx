@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
-import { NavLink, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { apiFetch } from "../api/api";
+import AppLayout from "../components/AppLayout";
 import "./UserManagementPage.css";
 
 const selectableRoles = ["USER", "REVIEWER", "ADMIN"];
@@ -127,35 +128,6 @@ function UserManagementPage() {
   useEffect(() => {
     loadUsers();
   }, []);
-
-  const handleLogout = async () => {
-    try {
-      await apiFetch("/auth/logout", { method: "POST" });
-    } catch {
-      // ignore logout errors
-    } finally {
-      localStorage.removeItem("token");
-      localStorage.removeItem("user");
-      navigate("/login");
-    }
-  };
-
-  const getDisplayName = () => {
-    try {
-      const user = JSON.parse(localStorage.getItem("user") || "{}");
-      return (
-        user.full_name ||
-        user.fullName ||
-        user.username ||
-        user.email ||
-        "User"
-      );
-    } catch {
-      return "User";
-    }
-  };
-
-  const displayName = getDisplayName();
 
   const handleCreateNew = () => {
     setFormData({
@@ -367,299 +339,31 @@ function UserManagementPage() {
   if (loading) {
     return (
       <div className="user-management-page">
-        <nav className="navbar">
-          <div className="navbar-brand">
-            <span className="brand-icon">&#128274;</span>
-            <span className="brand-text">Secure DMS</span>
-          </div>
-          <div className="navbar-right">
-            <div className="user-area">
-              <span className="user-avatar">
-                {displayName.charAt(0).toUpperCase()}
-              </span>
-              <span className="user-name">{displayName}</span>
-            </div>
-            <button className="logout-button" onClick={handleLogout}>
-              Logout
-            </button>
-          </div>
-        </nav>
-        <div className="dashboard-body">
-          <aside className="sidebar">
-            <NavLink
-              className={({ isActive }) =>
-                "sidebar-item" + (isActive ? " active" : "")
-              }
-              to="/dashboard"
-            >
-              Dashboard
-            </NavLink>
-            <NavLink
-              className={({ isActive }) =>
-                "sidebar-item" + (isActive ? " active" : "")
-              }
-              to="/cases"
-            >
-              Cases
-            </NavLink>
-            <NavLink
-              className={({ isActive }) =>
-                "sidebar-item" + (isActive ? " active" : "")
-              }
-              to="/documents"
-            >
-              Documents
-            </NavLink>
-            <NavLink
-              className={({ isActive }) =>
-                "sidebar-item" + (isActive ? " active" : "")
-              }
-              to="/ai-assistant"
-            >
-              AI Assistant
-            </NavLink>
-            <NavLink
-              className={({ isActive }) =>
-                "sidebar-item" + (isActive ? " active" : "")
-              }
-              to="/search"
-            >
-              Search
-            </NavLink>
-            <NavLink
-              className={({ isActive }) =>
-                "sidebar-item" + (isActive ? " active" : "")
-              }
-              to="/audit-logs"
-            >
-              Audit Logs
-            </NavLink>
-            {isAdmin && (
-              <NavLink
-                className={({ isActive }) =>
-                  "sidebar-item" + (isActive ? " active" : "")
-                }
-                to="/users"
-              >
-                User Management
-              </NavLink>
-            )}
-            <NavLink
-              className={({ isActive }) =>
-                "sidebar-item" + (isActive ? " active" : "")
-              }
-              to="/passkey"
-            >
-              Passkey
-            </NavLink>
-          </aside>
-          <main className="main-content">
+        <AppLayout>
             <p>Loading users...</p>
-          </main>
-        </div>
-      </div>
+        </AppLayout>
+    </div>
     );
   }
 
   if (error) {
     return (
       <div className="user-management-page">
-        <nav className="navbar">
-          <div className="navbar-brand">
-            <span className="brand-icon">&#128274;</span>
-            <span className="brand-text">Secure DMS</span>
-          </div>
-          <div className="navbar-right">
-            <div className="user-area">
-              <span className="user-avatar">
-                {displayName.charAt(0).toUpperCase()}
-              </span>
-              <span className="user-name">{displayName}</span>
-            </div>
-            <button className="logout-button" onClick={handleLogout}>
-              Logout
-            </button>
-          </div>
-        </nav>
-        <div className="dashboard-body">
-          <aside className="sidebar">
-            <NavLink
-              className={({ isActive }) =>
-                "sidebar-item" + (isActive ? " active" : "")
-              }
-              to="/dashboard"
-            >
-              Dashboard
-            </NavLink>
-            <NavLink
-              className={({ isActive }) =>
-                "sidebar-item" + (isActive ? " active" : "")
-              }
-              to="/cases"
-            >
-              Cases
-            </NavLink>
-            <NavLink
-              className={({ isActive }) =>
-                "sidebar-item" + (isActive ? " active" : "")
-              }
-              to="/documents"
-            >
-              Documents
-            </NavLink>
-            <NavLink
-              className={({ isActive }) =>
-                "sidebar-item" + (isActive ? " active" : "")
-              }
-              to="/ai-assistant"
-            >
-              AI Assistant
-            </NavLink>
-            <NavLink
-              className={({ isActive }) =>
-                "sidebar-item" + (isActive ? " active" : "")
-              }
-              to="/search"
-            >
-              Search
-            </NavLink>
-            <NavLink
-              className={({ isActive }) =>
-                "sidebar-item" + (isActive ? " active" : "")
-              }
-              to="/audit-logs"
-            >
-              Audit Logs
-            </NavLink>
-            {isAdmin && (
-              <NavLink
-                className={({ isActive }) =>
-                  "sidebar-item" + (isActive ? " active" : "")
-                }
-                to="/users"
-              >
-                User Management
-              </NavLink>
-            )}
-            <NavLink
-              className={({ isActive }) =>
-                "sidebar-item" + (isActive ? " active" : "")
-              }
-              to="/passkey"
-            >
-              Passkey
-            </NavLink>
-          </aside>
-          <main className="main-content">
+        <AppLayout>
             <h1 className="page-title">User Management</h1>
             <p className="page-description">Unable to load users.</p>
             <p className="form-error">{error}</p>
             <button className="create-button" onClick={loadUsers}>
               Try Again
             </button>
-          </main>
-        </div>
-      </div>
+        </AppLayout>
+    </div>
     );
   }
 
   return (
     <div className="user-management-page">
-      <nav className="navbar">
-        <div className="navbar-brand">
-          <span className="brand-icon">&#128274;</span>
-          <span className="brand-text">Secure DMS</span>
-        </div>
-
-        <div className="navbar-right">
-          <button className="icon-button" aria-label="Notifications">
-            &#128276;
-          </button>
-
-          <div className="user-area">
-            <span className="user-avatar">
-              {displayName.charAt(0).toUpperCase()}
-            </span>
-            <span className="user-name">{displayName}</span>
-          </div>
-
-          <button className="logout-button" onClick={handleLogout}>
-            Logout
-          </button>
-        </div>
-      </nav>
-
-      <div className="dashboard-body">
-        <aside className="sidebar">
-          <NavLink
-            className={({ isActive }) =>
-              "sidebar-item" + (isActive ? " active" : "")
-            }
-            to="/dashboard"
-          >
-            Dashboard
-          </NavLink>
-          <NavLink
-            className={({ isActive }) =>
-              "sidebar-item" + (isActive ? " active" : "")
-            }
-            to="/cases"
-          >
-            Cases
-          </NavLink>
-          <NavLink
-            className={({ isActive }) =>
-              "sidebar-item" + (isActive ? " active" : "")
-            }
-            to="/documents"
-          >
-            Documents
-          </NavLink>
-          <NavLink
-            className={({ isActive }) =>
-              "sidebar-item" + (isActive ? " active" : "")
-            }
-            to="/ai-assistant"
-          >
-            AI Assistant
-          </NavLink>
-          <NavLink
-            className={({ isActive }) =>
-              "sidebar-item" + (isActive ? " active" : "")
-            }
-            to="/search"
-          >
-            Search
-          </NavLink>
-          <NavLink
-            className={({ isActive }) =>
-              "sidebar-item" + (isActive ? " active" : "")
-            }
-            to="/audit-logs"
-          >
-            Audit Logs
-          </NavLink>
-          {isAdmin && (
-            <NavLink
-              className={({ isActive }) =>
-                "sidebar-item" + (isActive ? " active" : "")
-              }
-              to="/users"
-            >
-              User Management
-            </NavLink>
-          )}
-          <NavLink
-            className={({ isActive }) =>
-              "sidebar-item" + (isActive ? " active" : "")
-            }
-            to="/passkey"
-          >
-            Passkey
-          </NavLink>
-        </aside>
-
-        <main className="main-content">
+      <AppLayout>
           <div className="page-heading">
             <h1 className="page-title">User Management</h1>
             <p className="page-description">
@@ -817,8 +521,7 @@ function UserManagementPage() {
               </tbody>
             </table>
           </div>
-        </main>
-      </div>
+      </AppLayout>
 
       {isModalOpen && (
         <div

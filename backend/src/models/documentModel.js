@@ -7,7 +7,7 @@ const UPLOAD_DIR = path.join(__dirname, "..", "..", "uploads", "documents");
 
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
-const DOCUMENT_STATUSES = ["active", "archived", "deleted"];
+const DOCUMENT_STATUSES = ["active", "archived", "deleted", "pending_review"];
 
 const DOCUMENT_SORTABLE_COLUMNS = [
   "id",
@@ -125,6 +125,8 @@ async function findAllDocuments({
   caseId = "",
   sort = "id",
   order = "asc",
+  officerId = null,
+  ownerUserId = null,
 } = {}) {
   const safePage = Math.max(1, Number(page) || 1);
   const safeLimit = Math.min(100, Math.max(1, Number(limit) || 20));
@@ -151,6 +153,32 @@ async function findAllDocuments({
   if (caseId && Number(caseId) > 0) {
     where.push("d.case_id = ?");
     params.push(Number(caseId));
+  }
+  // Assignment-first officer scope: officers only see documents of cases they
+  // are assigned to, or documents they uploaded themselves.
+  if (officerId && Number(officerId) > 0) {
+    const scopedId = Number(officerId);
+    where.push(
+      "(" +
+        "d.uploaded_by = ? " +
+        "OR EXISTS (SELECT 1 FROM cases co WHERE co.id = d.case_id AND co.assigned_to = ?) " +
+        "OR EXISTS (SELECT 1 FROM case_assignments cao " +
+        "WHERE cao.case_id = d.case_id AND cao.user_id = ? AND cao.assignment_role = 'officer')" +
+        ")"
+    );
+    params.push(scopedId, scopedId, scopedId);
+  }
+  // User scope: regular users only see documents they uploaded, or documents
+  // attached to cases they created.
+  if (ownerUserId && Number(ownerUserId) > 0) {
+    const scopedId = Number(ownerUserId);
+    where.push(
+      "(" +
+        "d.uploaded_by = ? " +
+        "OR EXISTS (SELECT 1 FROM cases cu WHERE cu.id = d.case_id AND cu.created_by = ?)" +
+        ")"
+    );
+    params.push(scopedId, scopedId);
   }
 
   const whereSql = where.length ? "WHERE " + where.join(" AND ") : "";
@@ -339,6 +367,8 @@ async function searchDocuments({
   caseId = "",
   sort = "id",
   order = "asc",
+  officerId = null,
+  ownerUserId = null,
 } = {}) {
   const safePage = Math.max(1, Number(page) || 1);
   const safeLimit = Math.min(100, Math.max(1, Number(limit) || 20));
@@ -367,6 +397,28 @@ async function searchDocuments({
   if (caseId && Number(caseId) > 0) {
     where.push("d.case_id = ?");
     params.push(Number(caseId));
+  }
+  if (officerId && Number(officerId) > 0) {
+    const scopedId = Number(officerId);
+    where.push(
+      "(" +
+        "d.uploaded_by = ? " +
+        "OR EXISTS (SELECT 1 FROM cases so WHERE so.id = d.case_id AND so.assigned_to = ?) " +
+        "OR EXISTS (SELECT 1 FROM case_assignments sao " +
+        "WHERE sao.case_id = d.case_id AND sao.user_id = ? AND sao.assignment_role = 'officer')" +
+        ")"
+    );
+    params.push(scopedId, scopedId, scopedId);
+  }
+  if (ownerUserId && Number(ownerUserId) > 0) {
+    const scopedId = Number(ownerUserId);
+    where.push(
+      "(" +
+        "d.uploaded_by = ? " +
+        "OR EXISTS (SELECT 1 FROM cases su WHERE su.id = d.case_id AND su.created_by = ?)" +
+        ")"
+    );
+    params.push(scopedId, scopedId);
   }
 
   const whereSql = where.length ? "WHERE " + where.join(" AND ") : "";

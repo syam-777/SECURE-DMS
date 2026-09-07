@@ -7,6 +7,7 @@ const {
   getCaseById,
   updateCaseById,
   updateCaseStatusById,
+  submitCaseForReview,
   deleteCaseById,
   getAssignments,
   createNewAssignment,
@@ -70,6 +71,15 @@ router.patch(
   updateCaseStatusValidators,
   validateRequest,
   updateCaseStatusById
+);
+
+// POST /api/cases/:id/submit-for-review — officer submits a case for review
+router.post(
+  "/:id/submit-for-review",
+  authorize("cases:write"),
+  caseIdParamValidator,
+  validateRequest,
+  submitCaseForReview
 );
 
 // DELETE /api/cases/:id — delete a case
