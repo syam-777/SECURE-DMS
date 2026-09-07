@@ -81,11 +81,16 @@
   width: 100%;
   padding: 12px 14px;
   font-size: 15px;
-  color: #0f172a;
+  color: #ffffff;
   border: 1px solid #cbd5e1;
   border-radius: 8px;
   outline: none;
   transition: border-color 0.2s;
+}
+
+.form-group input::placeholder {
+  color: #ffffff;
+  opacity: 1;
 }
 
 .form-group input:focus {
