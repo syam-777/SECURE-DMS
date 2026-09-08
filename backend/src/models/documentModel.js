@@ -1,11 +1,6 @@
 const fs = require("fs");
-const path = require("path");
 const crypto = require("crypto");
 const { pool } = require("../config/database");
-
-const UPLOAD_DIR = path.join(__dirname, "..", "..", "uploads", "documents");
-
-fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 const DOCUMENT_STATUSES = ["active", "archived", "deleted", "pending_review"];
 
@@ -55,13 +50,28 @@ function isValidDocumentStatus(status) {
   return DOCUMENT_STATUSES.includes(status);
 }
 
-function safeDocumentPath(storedFileName) {
-  const base = path.resolve(UPLOAD_DIR);
-  const resolved = path.resolve(UPLOAD_DIR, storedFileName);
-  if (!resolved.startsWith(base + path.sep) && resolved !== base) {
-    return null;
-  }
-  return resolved;
+/**
+ * Generate a secure object key for private B2 storage. The extension is
+ * derived from the uploaded MIME type so the stored key can still be
+ * served with a sensible Content-Type. The original filename is never
+ * used as the key.
+ */
+function generateStorageKey(mimeType) {
+  const ext = getExtensionForMime(mimeType) || ".bin";
+  return crypto.randomUUID() + ext;
+}
+
+function sha256Buffer(buffer) {
+  return crypto.createHash("sha256").update(buffer).digest("hex");
+}
+
+function sha256Stream(readable) {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash("sha256");
+    readable.on("error", reject);
+    readable.on("data", (chunk) => hash.update(chunk));
+    readable.on("end", () => resolve(hash.digest("hex")));
+  });
 }
 
 function sha256File(filePath) {
@@ -458,14 +468,15 @@ async function searchDocuments({
 }
 
 module.exports = {
-  UPLOAD_DIR,
   MAX_FILE_SIZE,
   DOCUMENT_STATUSES,
   DOCUMENT_SORTABLE_COLUMNS,
   getExtensionForMime,
   isAllowedMimeType,
   isValidDocumentStatus,
-  safeDocumentPath,
+  generateStorageKey,
+  sha256Buffer,
+  sha256Stream,
   sha256File,
   findDocumentById,
   findDocumentVersion,

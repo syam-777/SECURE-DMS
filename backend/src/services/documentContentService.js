@@ -1,13 +1,15 @@
-const fs = require("fs");
 const { PDFParse } = require("pdf-parse");
 const mammoth = require("mammoth");
 const ExcelJS = require("exceljs");
 
 const {
-  safeDocumentPath,
   findDocumentById,
   findDocumentVersion,
 } = require("../models/documentModel");
+const {
+  getObjectBuffer,
+  isNotFoundError,
+} = require("./fileService");
 
 // Maximum number of text characters ever sent to Gemini. Longer
 // documents are truncated safely and reported via `truncated`.
@@ -38,9 +40,8 @@ function normalizeWhitespace(text) {
     .trim();
 }
 
-async function extractPdfText(filePath) {
-  const data = await fs.promises.readFile(filePath);
-  const parser = new PDFParse({ data });
+async function extractPdfText(buffer) {
+  const parser = new PDFParse({ data: buffer });
   const result = await parser.getText();
   const raw = result && result.text ? result.text : "";
 
@@ -54,8 +55,7 @@ async function extractPdfText(filePath) {
   return normalizeWhitespace(withoutPageCounters);
 }
 
-async function extractDocxText(filePath) {
-  const buffer = await fs.promises.readFile(filePath);
+async function extractDocxText(buffer) {
   const result = await mammoth.extractRawText({ buffer });
   return normalizeWhitespace(result && result.value ? result.value : "");
 }
@@ -75,8 +75,7 @@ function cellToText(cell) {
   return value != null ? String(value).trim() : "";
 }
 
-async function extractXlsxText(filePath) {
-  const buffer = await fs.promises.readFile(filePath);
+async function extractXlsxText(buffer) {
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(buffer);
 
@@ -106,8 +105,8 @@ async function extractXlsxText(filePath) {
  * The document ID and version are resolved entirely server-side from the
  * database; the caller provides only an integer document ID (and
  * optionally an integer version number, defaulting to current_version).
- * The file path is always produced by safeDocumentPath() from the stored
- * file name — never from client input.
+ * The file is always retrieved from the private B2 bucket using the
+ * stored file name — never from client input.
  *
  * Throws httpError:
  *   400 invalid file path or version
@@ -140,14 +139,6 @@ async function readDocumentText(documentId, versionNumber) {
     throw httpError(404, "Document version not found");
   }
 
-  const filePath = safeDocumentPath(version.stored_file_name);
-  if (!filePath) {
-    throw httpError(400, "Invalid file path");
-  }
-  if (!fs.existsSync(filePath)) {
-    throw httpError(404, "Physical file not found on server");
-  }
-
   const mimeType = version.mime_type;
   if (!mimeType || !SUMMARY_MIME_TYPES.has(mimeType)) {
     throw httpError(
@@ -156,20 +147,29 @@ async function readDocumentText(documentId, versionNumber) {
     );
   }
 
+  let buffer;
+  try {
+    buffer = await getObjectBuffer(version.stored_file_name);
+  } catch (objErr) {
+    if (isNotFoundError(objErr)) {
+      throw httpError(404, "Physical file not found on server");
+    }
+    throw objErr;
+  }
+
   let extracted;
   try {
     if (mimeType === "text/plain") {
-      const raw = await fs.promises.readFile(filePath, "utf8");
-      extracted = normalizeWhitespace(raw);
+      extracted = normalizeWhitespace(buffer.toString("utf8"));
     } else if (mimeType === "application/pdf") {
-      extracted = await extractPdfText(filePath);
+      extracted = await extractPdfText(buffer);
     } else if (
       mimeType ===
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     ) {
-      extracted = await extractDocxText(filePath);
+      extracted = await extractDocxText(buffer);
     } else {
-      extracted = await extractXlsxText(filePath);
+      extracted = await extractXlsxText(buffer);
     }
   } catch (parseErr) {
     // Malformed/corrupt files must fail closed with a safe, generic error.

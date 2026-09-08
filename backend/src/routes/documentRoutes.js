@@ -1,6 +1,5 @@
 const express = require("express");
 const multer = require("multer");
-const crypto = require("crypto");
 const { validationResult } = require("express-validator");
 const router = express.Router();
 
@@ -28,25 +27,15 @@ const {
 } = require("../middleware/validate");
 const { aiSummaryLimiter } = require("../middleware/rateLimiter");
 const {
-  UPLOAD_DIR,
   MAX_FILE_SIZE,
   isAllowedMimeType,
-  getExtensionForMime,
   findDocumentById,
 } = require("../models/documentModel");
 
-const fs = require("fs");
-
 // ─── Multer configuration ─────────────────────────────────────
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    cb(null, UPLOAD_DIR);
-  },
-  filename: function (req, file, cb) {
-    const ext = getExtensionForMime(file.mimetype) || ".bin";
-    cb(null, crypto.randomUUID() + ext);
-  },
-});
+// Files are held in memory; the controller uploads the bytes to the
+// private Backblaze B2 bucket. Nothing is written to local disk.
+const storage = multer.memoryStorage();
 
 function fileFilter(req, file, cb) {
   if (file.mimetype && isAllowedMimeType(file.mimetype)) {
@@ -62,12 +51,6 @@ const upload = multer({
   fileFilter,
   limits: { fileSize: MAX_FILE_SIZE },
 });
-
-function cleanupFile(filePath) {
-  if (filePath) {
-    fs.unlink(filePath, () => {});
-  }
-}
 
 function httpError(statusCode, message) {
   const err = new Error(message);
@@ -116,7 +99,6 @@ async function handleDocumentUpload(req, res, next) {
     }
     const valErrors = validationResult(req);
     if (!valErrors.isEmpty()) {
-      cleanupFile(req.file.path);
       const messages = valErrors.array().map((e) => e.msg);
       throw httpError(400, messages.join("; "));
     }

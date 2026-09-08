@@ -1,4 +1,3 @@
-const fs = require("fs");
 const { logAuditEvent } = require("../models/auditLogModel");
 const { getUserWithRoleAndPermissions } = require("../models/userModel");
 const {
@@ -9,8 +8,9 @@ const {
 const { readDocumentText } = require("../services/documentContentService");
 const { summarizeText } = require("../services/aiService");
 const {
-  safeDocumentPath,
-  sha256File,
+  generateStorageKey,
+  sha256Buffer,
+  sha256Stream,
   findDocumentById,
   findDocumentVersion,
   findVersionsByDocument,
@@ -19,6 +19,12 @@ const {
   createVersion,
   softDeleteDocument,
 } = require("../models/documentModel");
+const {
+  uploadObject,
+  getObject,
+  deleteObject,
+  isNotFoundError,
+} = require("../services/fileService");
 
 function httpError(statusCode, message) {
   const err = new Error(message);
@@ -27,25 +33,53 @@ function httpError(statusCode, message) {
   return err;
 }
 
-function cleanupFile(filePath) {
-  fs.unlink(filePath, () => {});
-}
-
 function safeVersion(version) {
   if (!version) return null;
   const { file_path, stored_file_name, ...rest } = version;
   return rest;
 }
 
+function contentDispositionHeader(fileName, mode = "attachment") {
+  const name = String(fileName || "document");
+  const ascii = name.replace(/[^\x20-\x7E]/g, "_").replace(/["\\]/g, "_");
+  return `${mode}; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(name)}`;
+}
+
 /**
- * Resolve the actor's DB role and, for OFFICER and USER roles, whether the
- * actor may access the given document. ADMIN and REVIEWER are allowed by the
- * existing RBAC model (ADMIN for oversight, REVIEWER for the review flow).
+ * Stream a private B2 object to an authenticated caller. The object is
+ * never exposed to the frontend; the client only receives file bytes
+ * with safe HTTP headers.
+ */
+function respondWithObject(res, stream, { originalFileName, mimeType, fileSize }) {
+  res.status(200);
+  res.setHeader("Content-Type", mimeType || "application/octet-stream");
+  if (Number.isFinite(Number(fileSize)) && Number(fileSize) > 0) {
+    res.setHeader("Content-Length", String(fileSize));
+  }
+  res.setHeader(
+    "Content-Disposition",
+    contentDispositionHeader(originalFileName)
+  );
+  stream.once("error", () => {
+    if (!res.headersSent) {
+      if (!res.destroyed) res.status(500).end();
+    } else if (!res.destroyed) {
+      res.destroy();
+    }
+  });
+  return stream.pipe(res);
+}
+
+/**
+ * Resolve the actor's DB role and, for OFFICER, USER and REVIEWER roles,
+ * whether the actor may access the given document. ADMIN is always allowed.
  *
  * OFFICER: allowed only for documents of cases they are assigned to, or
  * documents they uploaded themselves.
  * USER: allowed only for documents they uploaded, or documents attached to
  * cases they created.
+ * REVIEWER: allowed only for documents belonging to a case whose status is
+ * `under_review`. Ownership and assignment are not considered.
  *
  * @param {object} document document row (must include case_id, uploaded_by)
  * @param {number|string} actorId
@@ -56,11 +90,26 @@ async function assertDocumentAccess(document, actorId) {
   if (!actor) {
     throw httpError(401, "Authenticated user no longer exists");
   }
-  if (actor.role === "ADMIN" || actor.role === "REVIEWER") {
+  if (actor.role === "ADMIN") {
     return actor;
   }
 
   const uid = Number(actorId);
+
+  if (actor.role === "REVIEWER") {
+    // A reviewer may access a document only when the case it belongs to is
+    // currently under review. A document with no case is never reviewable.
+    // Ownership/assignment/uploader are intentionally NOT considered here:
+    // review access is scoped purely by the case's `under_review` status.
+    if (document.case_id == null) {
+      throw httpError(403, "You do not have access to this document");
+    }
+    const caseRow = await findCaseById(document.case_id);
+    if (!caseRow || caseRow.status !== "under_review") {
+      throw httpError(403, "You do not have access to this document");
+    }
+    return actor;
+  }
 
   if (actor.role === "OFFICER") {
     if (document.case_id != null) {
@@ -191,12 +240,10 @@ async function uploadDocument(req, res, next) {
     if (caseId != null && String(caseId).trim() !== "") {
       const caseIdNum = Number(caseId);
       if (!Number.isInteger(caseIdNum) || caseIdNum < 1) {
-        cleanupFile(req.file.path);
         throw httpError(400, "Invalid caseId");
       }
       const caseExists = await findCaseNumberById(caseIdNum);
       if (!caseExists) {
-        cleanupFile(req.file.path);
         throw httpError(404, "Case not found");
       }
 
@@ -211,7 +258,6 @@ async function uploadDocument(req, res, next) {
             Number(caseRow.assigned_to) === Number(uploadedById)) ||
             (await hasOfficerAssignment(caseRow.id, uploadedById)));
         if (!assigned) {
-          cleanupFile(req.file.path);
           throw httpError(
             403,
             "You are not assigned to this case and cannot upload investigation documents to it"
@@ -222,9 +268,19 @@ async function uploadDocument(req, res, next) {
       resolvedCaseId = caseIdNum;
     }
 
+    // Store the file bytes in the private B2 bucket before writing the
+    // metadata row; the object key is the same value stored in
+    // stored_file_name / file_path (no schema change).
+    const storageKey = generateStorageKey(req.file.mimetype);
+    const checksum = sha256Buffer(req.file.buffer);
+    await uploadObject({
+      key: storageKey,
+      body: req.file.buffer,
+      contentType: req.file.mimetype,
+    });
+
     let result;
     try {
-      const checksum = await sha256File(req.file.path);
       result = await createDocument({
         caseId: resolvedCaseId,
         title: title.trim(),
@@ -234,13 +290,15 @@ async function uploadDocument(req, res, next) {
           documentType != null ? String(documentType).trim() : null,
         uploadedBy: uploadedById,
         originalFileName: req.file.originalname,
-        storedFileName: req.file.filename,
+        storedFileName: storageKey,
         mimeType: req.file.mimetype,
         fileSize: req.file.size,
         checksum,
       });
     } catch (dbErr) {
-      cleanupFile(req.file.path);
+      // Best-effort rollback of the B2 object if metadata cannot be
+      // persisted. Never throw from a cleanup path.
+      await deleteObject(storageKey).catch(() => {});
       throw dbErr;
     }
 
@@ -294,13 +352,14 @@ async function downloadDocument(req, res, next) {
       throw httpError(404, "Document version not found");
     }
 
-    const filePath = safeDocumentPath(currentVersion.stored_file_name);
-    if (!filePath) {
-      throw httpError(400, "Invalid file path");
-    }
-
-    if (!fs.existsSync(filePath)) {
-      throw httpError(404, "Physical file not found on server");
+    let file;
+    try {
+      file = await getObject(currentVersion.stored_file_name);
+    } catch (objErr) {
+      if (isNotFoundError(objErr)) {
+        throw httpError(404, "Physical file not found on server");
+      }
+      throw objErr;
     }
 
     await logAuditEvent({
@@ -315,7 +374,11 @@ async function downloadDocument(req, res, next) {
       },
     });
 
-    return res.download(filePath, currentVersion.original_file_name);
+    return respondWithObject(res, file.stream, {
+      originalFileName: currentVersion.original_file_name,
+      mimeType: currentVersion.mime_type,
+      fileSize: currentVersion.file_size,
+    });
   } catch (err) {
     return next(err);
   }
@@ -368,30 +431,40 @@ async function createNewVersion(req, res, next) {
     const docId = req.params.id;
     const document = await findDocumentById(docId);
     if (!document) {
-      cleanupFile(req.file.path);
       throw httpError(404, "Document not found");
     }
     if (document.status === "deleted") {
-      cleanupFile(req.file.path);
       throw httpError(400, "Cannot add versions to a deleted document");
     }
 
     await assertDocumentAccess(document, req.user.id);
 
+    // Upload the new version bytes to B2 first; each version gets its own
+    // object key and its own SHA-256 checksum. Previous versions are left
+    // untouched.
+    const storageKey = generateStorageKey(req.file.mimetype);
+    const checksum = sha256Buffer(req.file.buffer);
+    await uploadObject({
+      key: storageKey,
+      body: req.file.buffer,
+      contentType: req.file.mimetype,
+    });
+
     let result;
     try {
-      const checksum = await sha256File(req.file.path);
       result = await createVersion({
         documentId: Number(docId),
         originalFileName: req.file.originalname,
-        storedFileName: req.file.filename,
+        storedFileName: storageKey,
         mimeType: req.file.mimetype,
         fileSize: req.file.size,
         checksum,
         uploadedBy: req.user.id,
       });
     } catch (dbErr) {
-      cleanupFile(req.file.path);
+      // Best-effort rollback of the B2 object if the version row cannot
+      // be persisted. Never throw from a cleanup path.
+      await deleteObject(storageKey).catch(() => {});
       throw dbErr;
     }
 
@@ -494,13 +567,14 @@ async function downloadVersion(req, res, next) {
       throw httpError(404, "Document version not found");
     }
 
-    const filePath = safeDocumentPath(version.stored_file_name);
-    if (!filePath) {
-      throw httpError(400, "Invalid file path");
-    }
-
-    if (!fs.existsSync(filePath)) {
-      throw httpError(404, "Physical file not found on server");
+    let file;
+    try {
+      file = await getObject(version.stored_file_name);
+    } catch (objErr) {
+      if (isNotFoundError(objErr)) {
+        throw httpError(404, "Physical file not found on server");
+      }
+      throw objErr;
     }
 
     await logAuditEvent({
@@ -516,7 +590,11 @@ async function downloadVersion(req, res, next) {
       },
     });
 
-    return res.download(filePath, version.original_file_name);
+    return respondWithObject(res, file.stream, {
+      originalFileName: version.original_file_name,
+      mimeType: version.mime_type,
+      fileSize: version.file_size,
+    });
   } catch (err) {
     return next(err);
   }
@@ -540,16 +618,19 @@ async function verifyVersionIntegrity(req, res, next) {
       throw httpError(404, "Document version not found");
     }
 
-    const filePath = safeDocumentPath(version.stored_file_name);
-    if (!filePath) {
-      throw httpError(400, "Invalid file path");
+    // Stream the object from B2 and hash the bytes ourselves. The B2 ETag
+    // is never trusted as the SHA-256 checksum.
+    let file;
+    try {
+      file = await getObject(version.stored_file_name);
+    } catch (objErr) {
+      if (isNotFoundError(objErr)) {
+        throw httpError(404, "Physical file not found on server");
+      }
+      throw objErr;
     }
 
-    if (!fs.existsSync(filePath)) {
-      throw httpError(404, "Physical file not found on server");
-    }
-
-    const calculatedChecksum = await sha256File(filePath);
+    const calculatedChecksum = await sha256Stream(file.stream);
     const storedChecksum = version.checksum || null;
     const integrityValid =
       storedChecksum != null && calculatedChecksum === storedChecksum;
