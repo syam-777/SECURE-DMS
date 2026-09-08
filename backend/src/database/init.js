@@ -199,6 +199,7 @@ async function initializeDatabase() {
       "document_versions",
       "document_contents",
       "audit_logs",
+      "blockchain_audit_ledger",
       "passkeys",
     ];
     const missing = expected.filter((t) => !tableNames.includes(t));

@@ -4,6 +4,8 @@ const router = express.Router();
 const {
   listAuditLogs,
   getAuditLogById,
+  verifyBlockchain,
+  getBlockchainBlocks,
 } = require("../controllers/auditController");
 const {
   authenticate,
@@ -17,12 +19,18 @@ const {
 
 router.use(authenticate);
 
+router.get("/", authorize("audit:read"), auditLogsListValidators, validateRequest, listAuditLogs);
+
 router.get(
-  "/",
+  "/blockchain/verify",
   authorize("audit:read"),
-  auditLogsListValidators,
-  validateRequest,
-  listAuditLogs
+  verifyBlockchain
+);
+
+router.get(
+  "/blockchain/blocks",
+  authorize("audit:read"),
+  getBlockchainBlocks
 );
 
 router.get(

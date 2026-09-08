@@ -81,6 +81,29 @@ function AuditLogsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  // Blockchain audit ledger verification state
+  const [ledgerResult, setLedgerResult] = useState(null);
+  const [ledgerLoading, setLedgerLoading] = useState(false);
+  const [ledgerError, setLedgerError] = useState("");
+
+  const runLedgerVerification = async () => {
+    try {
+      setLedgerLoading(true);
+      setLedgerError("");
+      setLedgerResult(null);
+      const res = await apiFetch("/audit-logs/blockchain/verify");
+      if (res && res.data) {
+        setLedgerResult(res.data);
+      } else {
+        setLedgerError("Unexpected response from ledger verification");
+      }
+    } catch (err) {
+      setLedgerError(err.message || "Ledger verification failed");
+    } finally {
+      setLedgerLoading(false);
+    }
+  };
+
   useEffect(() => {
     let cancelled = false;
 
@@ -348,6 +371,60 @@ function AuditLogsPage() {
           <div className="security-notice">
             Audit logs are used for accountability, security monitoring, and
             investigation of suspicious activity.
+          </div>
+
+          <div className="ledger-section">
+            <div className="ledger-header">
+              <h2 className="ledger-title">Blockchain Audit Ledger</h2>
+              <button
+                className="ledger-verify-button"
+                onClick={runLedgerVerification}
+                disabled={ledgerLoading}
+              >
+                {ledgerLoading ? "Verifying..." : "Verify Ledger"}
+              </button>
+            </div>
+
+            {ledgerError && (
+              <div className="ledger-banner ledger-banner--error">
+                {ledgerError}
+              </div>
+            )}
+
+            {ledgerResult && (
+              <div
+                className={`ledger-banner ${
+                  ledgerResult.valid ? "ledger-banner--valid" : "ledger-banner--invalid"
+                }`}
+              >
+                <div className="ledger-banner-row">
+                  <span className="ledger-banner-label">Status</span>
+                  <span className="ledger-banner-value">
+                    {ledgerResult.valid ? "Valid" : "INVALID"}
+                  </span>
+                </div>
+                <div className="ledger-banner-row">
+                  <span className="ledger-banner-label">Blocks</span>
+                  <span className="ledger-banner-value">{ledgerResult.blocks}</span>
+                </div>
+                {ledgerResult.lastBlockIndex != null && (
+                  <div className="ledger-banner-row">
+                    <span className="ledger-banner-label">Last Block Index</span>
+                    <span className="ledger-banner-value">{ledgerResult.lastBlockIndex}</span>
+                  </div>
+                )}
+                {ledgerResult.message && (
+                  <div className="ledger-banner-message">{ledgerResult.message}</div>
+                )}
+                {ledgerResult.failures &&
+                  ledgerResult.failures.length > 0 &&
+                  ledgerResult.failures.map((f, i) => (
+                    <div key={i} className="ledger-banner-failure">
+                      Block #{f.blockIndex}: {f.reason}
+                    </div>
+                  ))}
+              </div>
+            )}
           </div>
       </AppLayout>
     </div>

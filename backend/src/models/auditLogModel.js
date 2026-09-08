@@ -1,13 +1,27 @@
 const { pool } = require("../config/database");
+const {
+  appendAuditBlock,
+} = require("./blockchainAuditModel");
 
 /**
- * Reusable audit logging helper. Writes one row to audit_logs.
- * On failure it logs a safe, generic message to the console and does
- * NOT throw, so an auditing problem never breaks the request flow.
+ * Reusable audit logging helper. Writes one row to audit_logs and appends
+ * a matching block to the audit-blockchain ledger.
  *
  * An optional `connection` (a MySQL transaction connection) may be
- * supplied so the audit record can commit/roll back with the calling
- * transaction (used by the officer-verification approval flow).
+ * supplied so the audit record AND its ledger block commit/roll back with
+ * the calling transaction (used by the officer-verification, case-review,
+ * and officer-approval flows).
+ *
+ * ATOMICITY CONTRACT:
+ *   - When `connection` is supplied, the audit_logs INSERT and the
+ *     blockchain block INSERT both use that SAME connection. If the block
+ *     append fails, this function THROWS so the caller's rollback() fires,
+ *     meaning the transaction (including the audit row) is rolled back.
+ *     The audit record is therefore never persisted without its block.
+ *   - When no connection is supplied (fire-and-forget audit logging), a
+ *     failure to append the block logs a generic message and does NOT throw,
+ *     preserving the existing guarantee that an auditing problem never breaks
+ *     the request flow.
  *
  * NOTE: Never pass passwords, JWT tokens, or raw official ID values
  * to `details`.
@@ -22,14 +36,16 @@ const { pool } = require("../config/database");
  *   details?: object|null
  * }} data
  * @param {object} [connection]
- * @returns {Promise<void>}
+ * @returns {Promise<number|null>} the inserted audit_logs id (or null).
  */
 async function logAuditEvent(data, connection) {
   const details = data.details && typeof data.details === "object" ? data.details : null;
 
+  let auditLogId = null;
+
   try {
     const exec = connection || pool;
-    await exec.query(
+    const [result] = await exec.query(
       "INSERT INTO audit_logs " +
         "(user_id, action, resource_type, resource_id, ip_address, user_agent, details) " +
         "VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -43,11 +59,45 @@ async function logAuditEvent(data, connection) {
         details ? JSON.stringify(details) : null,
       ]
     );
+    auditLogId = result.insertId;
   } catch (err) {
     // Do not break the request or leak sensitive info because of auditing.
     // A fixed, generic message is logged — never echo the DB/query text.
     console.error("Audit log write failed (entry omitted)");
+    return null;
   }
+
+  // Append a blockchain block chained to the newly inserted audit row,
+  // using the SAME executor so it is atomic with the audit insert.
+  try {
+    await appendAuditBlock(
+      {
+        auditLogId,
+        userId: data.userId,
+        action: data.action,
+        resourceType: data.resourceType,
+        resourceId: data.resourceId,
+        ipAddress: data.ipAddress,
+      },
+      connection || pool
+    );
+  } catch (blockErr) {
+    if (connection) {
+      // Inside a transaction: propagate so the caller's rollback() fires.
+      // This prevents a committed audit row with no corresponding block.
+      console.error(
+        "Blockchain block append failed inside transaction (transaction will roll back)"
+      );
+      throw blockErr;
+    }
+    // Outside a transaction: keep the request flow intact, but log clearly
+    // that this audit row has no corresponding ledger block.
+    console.error(
+      "Blockchain block append failed (audit row persisted without a block)"
+    );
+  }
+
+  return auditLogId;
 }
 
 const AUDIT_SORTABLE_COLUMNS = [

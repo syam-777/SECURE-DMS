@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node --dns-result-order=ipv4first src/server.js",
     "dev": "nodemon --exec \"node --dns-result-order=ipv4first\" src/server.js",
-    "db:init": "node src/database/init.js"
+    "db:init": "node src/database/init.js",
+    "test:blockchain": "node tests/blockchainAudit.test.js"
   },
   "keywords": [],
   "author": "",

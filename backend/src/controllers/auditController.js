@@ -3,6 +3,10 @@ const {
   countAuditLogs,
   findAuditLogById,
 } = require("../models/auditLogModel");
+const {
+  verifyAuditBlockchain,
+  listLedgerBlocks,
+} = require("../models/blockchainAuditModel");
 
 function httpError(statusCode, message) {
   const err = new Error(message);
@@ -137,8 +141,61 @@ async function getAuditLogById(req, res, next) {
   }
 }
 
+/**
+ * Verifies the integrity of the entire blockchain audit ledger.
+ * Returns whether the chain is valid, the number of verified blocks,
+ * the last block index, and any detected failures.
+ */
+async function verifyBlockchain(req, res, next) {
+  try {
+    const result = await verifyAuditBlockchain();
+    return res.json({
+      success: true,
+      data: result,
+    });
+  } catch (err) {
+    return next(err);
+  }
+}
+
+/**
+ * Lists the blockchain audit ledger blocks (read-only).
+ * Optionally limited via ?limit= (defaults to 50, max 200).
+ */
+async function getBlockchainBlocks(req, res, next) {
+  try {
+    const limit = parseInt(req.query.limit, 10) || 50;
+    const blocks = await listLedgerBlocks(limit);
+    return res.json({
+      success: true,
+      data: blocks.map((block) => ({
+        id: block.id,
+        blockIndex: block.blockIndex,
+        auditLogId: block.auditLogId,
+        dataHash: block.dataHash,
+        previousHash: block.previousHash,
+        blockHash: block.blockHash,
+        createdAt: block.createdAt,
+        user: block.userId != null ? Number(block.userId) : null,
+        action: block.action,
+        resourceType: block.resourceType,
+        resourceId: block.resourceId,
+        ipAddress: block.ipAddress,
+      })),
+      pagination: {
+        limit,
+        total: blocks.length,
+      },
+    });
+  } catch (err) {
+    return next(err);
+  }
+}
+
 module.exports = {
   listAuditLogs,
   getAuditLogById,
+  verifyBlockchain,
+  getBlockchainBlocks,
   safeAuditRecord,
 };
