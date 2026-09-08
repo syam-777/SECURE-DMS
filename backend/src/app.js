@@ -20,18 +20,21 @@ const app = express();
 
 app.use(helmet());
 
-const allowedOrigin = process.env.FRONTEND_ORIGIN || "http://localhost:5173";
+const allowedOrigins = [
+  process.env.FRONTEND_ORIGIN || "http://localhost:5173",
+  "https://secure-qnxwk1r40-a1-9a8d.vercel.app",
+];
 
 app.use(
   cors({
     origin: (origin, callback) => {
-      if (!origin || origin === allowedOrigin) {
+      if (!origin || allowedOrigins.includes(origin)) {
         return callback(null, true);
       }
 
       return callback(null, false);
     },
-  })
+  }),
 );
 
 app.use(express.json());
