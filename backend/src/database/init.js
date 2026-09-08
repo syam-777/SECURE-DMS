@@ -197,6 +197,7 @@ async function initializeDatabase() {
       "case_assignments",
       "documents",
       "document_versions",
+      "document_contents",
       "audit_logs",
       "passkeys",
     ];

@@ -6,7 +6,11 @@ const {
   hasOfficerAssignment,
 } = require("../models/caseModel");
 const { readDocumentText } = require("../services/documentContentService");
+const { extractContentForFile } = require("../services/documentContentService");
 const { summarizeText } = require("../services/aiService");
+const {
+  upsertDocumentContent,
+} = require("../models/documentContentModel");
 const {
   generateStorageKey,
   sha256Buffer,
@@ -31,6 +35,36 @@ function httpError(statusCode, message) {
   err.statusCode = statusCode;
   err.expose = true;
   return err;
+}
+
+/**
+ * Extract content for a document version and persist it to the
+ * document_contents table. This is a best-effort background task:
+ * failures are logged and NEVER cause a successful document upload or
+ * version creation to fail.
+ *
+ * @param {number} documentId
+ * @param {number} versionNumber
+ * @param {Buffer} buffer the file bytes (e.g. req.file.buffer)
+ * @param {string} mimeType
+ * @returns {Promise<void>}
+ */
+async function indexDocumentContent(documentId, versionNumber, buffer, mimeType) {
+  try {
+    const { text, extractionMethod, isOcr } = await extractContentForFile(
+      buffer,
+      mimeType
+    );
+    await upsertDocumentContent({
+      documentId,
+      versionNumber,
+      extractedText: text,
+      extractionMethod,
+      isOcr,
+    });
+  } catch (err) {
+    console.error("Content indexing failed for document", documentId, "version", versionNumber);
+  }
 }
 
 function safeVersion(version) {
@@ -321,6 +355,13 @@ async function uploadDocument(req, res, next) {
     const document = await findDocumentById(result.documentId);
     const currentVersion = await findDocumentVersion(result.documentId, 1);
 
+    indexDocumentContent(
+      result.documentId,
+      1,
+      req.file.buffer,
+      req.file.mimetype
+    ).catch(() => {});
+
     return res
       .status(201)
       .json({ success: true, document, currentVersion });
@@ -484,6 +525,13 @@ async function createNewVersion(req, res, next) {
     });
 
     const version = await findDocumentVersion(docId, result.versionNumber);
+
+    indexDocumentContent(
+      Number(docId),
+      result.versionNumber,
+      req.file.buffer,
+      req.file.mimetype
+    ).catch(() => {});
 
     return res.status(201).json({
       success: true,

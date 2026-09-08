@@ -10,13 +10,14 @@ const {
   getObjectBuffer,
   isNotFoundError,
 } = require("./fileService");
+const { ocrImageBuffer, ocrPdfBuffer } = require("./ocrService");
 
 // Maximum number of text characters ever sent to Gemini. Longer
 // documents are truncated safely and reported via `truncated`.
 const MAX_EXTRACTED_TEXT_CHARS = 100000;
 
 // MIME types accepted for summarization. Everything else that the
-// upload pipeline accepts (legacy .doc/.xls, images) is deliberately
+// upload pipeline accepts (legacy .doc/.xls) is deliberately
 // rejected here with 415.
 const SUMMARY_MIME_TYPES = new Set([
   "text/plain",
@@ -53,6 +54,134 @@ async function extractPdfText(buffer) {
     .join("\n");
 
   return normalizeWhitespace(withoutPageCounters);
+}
+
+/**
+ * Detect whether a PDF is a scanned/image-based document by checking
+ * for the presence of images. A low image count relative to page count
+ * suggests a text-based PDF.
+ *
+ * @param {Buffer} buffer
+ * @returns {Promise<boolean>}
+ */
+async function isScannedPdf(buffer) {
+  try {
+    const parser = new PDFParse({ data: buffer });
+    const imageResult = await parser.getImage({ imageThreshold: 50 });
+    const imageCount = imageResult && imageResult.imageCount
+      ? imageResult.imageCount
+      : 0;
+    const pageCount = imageResult && imageResult.pages
+      ? imageResult.pages
+      : 1;
+    return imageCount > 0 && imageCount >= pageCount;
+  } catch (_) {
+    return false;
+  }
+}
+
+/**
+ * Extract content from a file buffer for indexing.
+ * Supports TXT, PDF (text + OCR fallback), JPG/PNG (OCR).
+ * Returns extracted text, the extraction method, and whether OCR was used.
+ *
+ * @param {Buffer} buffer
+ * @param {string} mimeType
+ * @returns {Promise<{ text: string, extractionMethod: string, isOcr: boolean }>}
+ */
+async function extractContentForFile(buffer, mimeType) {
+  if (!Buffer.isBuffer(buffer)) {
+    throw httpError(400, "Invalid buffer for content extraction");
+  }
+
+  if (mimeType === "text/plain") {
+    const text = normalizeWhitespace(buffer.toString("utf8"));
+    return {
+      text: text.length > MAX_EXTRACTED_TEXT_CHARS
+        ? text.slice(0, MAX_EXTRACTED_TEXT_CHARS)
+        : text,
+      extractionMethod: "txt",
+      isOcr: false,
+    };
+  }
+
+  if (mimeType === "application/pdf") {
+    const pdfText = await extractPdfText(buffer);
+
+    if (pdfText.length >= 1000) {
+      return {
+        text: pdfText.length > MAX_EXTRACTED_TEXT_CHARS
+          ? pdfText.slice(0, MAX_EXTRACTED_TEXT_CHARS)
+          : pdfText,
+        extractionMethod: "pdf_text",
+        isOcr: false,
+      };
+    }
+
+    const scanned = await isScannedPdf(buffer);
+    if (scanned) {
+      const ocrResult = await ocrPdfBuffer(buffer);
+      const text = ocrResult.text || pdfText;
+      return {
+        text: text.length > MAX_EXTRACTED_TEXT_CHARS
+          ? text.slice(0, MAX_EXTRACTED_TEXT_CHARS)
+          : text,
+        extractionMethod: "ocr",
+        isOcr: true,
+      };
+    }
+
+    return {
+      text: pdfText.length > MAX_EXTRACTED_TEXT_CHARS
+        ? pdfText.slice(0, MAX_EXTRACTED_TEXT_CHARS)
+        : pdfText,
+      extractionMethod: "pdf_text",
+      isOcr: false,
+    };
+  }
+
+  if (
+    mimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+  ) {
+    const result = await mammoth.extractRawText({ buffer });
+    const text = normalizeWhitespace(result && result.value ? result.value : "");
+    return {
+      text: text.length > MAX_EXTRACTED_TEXT_CHARS
+        ? text.slice(0, MAX_EXTRACTED_TEXT_CHARS)
+        : text,
+      extractionMethod: "docx",
+      isOcr: false,
+    };
+  }
+
+  if (
+    mimeType === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+  ) {
+    const text = await extractXlsxText(buffer);
+    return {
+      text: text.length > MAX_EXTRACTED_TEXT_CHARS
+        ? text.slice(0, MAX_EXTRACTED_TEXT_CHARS)
+        : text,
+      extractionMethod: "xlsx",
+      isOcr: false,
+    };
+  }
+
+  if (mimeType === "image/jpeg" || mimeType === "image/png") {
+    const ocrResult = await ocrImageBuffer(buffer);
+    return {
+      text: ocrResult.text.length > MAX_EXTRACTED_TEXT_CHARS
+        ? ocrResult.text.slice(0, MAX_EXTRACTED_TEXT_CHARS)
+        : ocrResult.text,
+      extractionMethod: "image_ocr",
+      isOcr: true,
+    };
+  }
+
+  throw httpError(
+    415,
+    "Unsupported file type for content extraction."
+  );
 }
 
 async function extractDocxText(buffer) {
@@ -202,4 +331,5 @@ async function readDocumentText(documentId, versionNumber) {
 module.exports = {
   MAX_EXTRACTED_TEXT_CHARS,
   readDocumentText,
+  extractContentForFile,
 };

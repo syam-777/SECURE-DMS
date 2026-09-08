@@ -391,10 +391,12 @@ async function searchDocuments({
     where.push(
       "(d.title LIKE ? OR d.description LIKE ? OR d.document_type LIKE ? " +
         "OR c.case_number LIKE ? OR EXISTS (SELECT 1 FROM document_versions dv " +
-        "WHERE dv.document_id = d.id AND dv.original_file_name LIKE ?))"
+        "WHERE dv.document_id = d.id AND dv.original_file_name LIKE ?) " +
+        "OR EXISTS (SELECT 1 FROM document_contents dc " +
+        "WHERE dc.document_id = d.id AND dc.extracted_text LIKE ?))"
     );
     const like = `%${String(q).trim()}%`;
-    params.push(like, like, like, like, like);
+    params.push(like, like, like, like, like, like);
   }
   if (status && isValidDocumentStatus(status)) {
     where.push("d.status = ?");

@@ -28,7 +28,13 @@
     "mammoth": "^1.12.2",
     "multer": "^2.3.0",
     "mysql2": "^3.24.3",
-    "pdf-parse": "^2.4.5"
+    "pdf-parse": "^2.4.5",
+    "pdf-to-img": "^7.0.0",
+    "pdfjs-dist": "5.4.296",
+    "tesseract.js": "^7.0.0"
+  },
+  "overrides": {
+    "pdfjs-dist": "5.4.296"
   },
   "devDependencies": {
     "nodemon": "^3.1.14"
