@@ -1,0 +1,491 @@
+const fs = require("fs");
+const crypto = require("crypto");
+const { pool } = require("../config/database");
+
+const DOCUMENT_STATUSES = ["active", "archived", "deleted", "pending_review"];
+
+const DOCUMENT_SORTABLE_COLUMNS = [
+  "id",
+  "title",
+  "document_type",
+  "status",
+  "current_version",
+  "created_at",
+  "updated_at",
+];
+
+const ALLOWED_MIME_TYPES = new Set([
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "text/plain",
+  "image/jpeg",
+  "image/png",
+]);
+
+const MIME_TO_EXTENSION = {
+  "application/pdf": ".pdf",
+  "application/msword": ".doc",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
+  "application/vnd.ms-excel": ".xls",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
+  "text/plain": ".txt",
+  "image/jpeg": ".jpg",
+  "image/png": ".png",
+};
+
+const MAX_FILE_SIZE = 10 * 1024 * 1024;
+
+function getExtensionForMime(mimeType) {
+  return MIME_TO_EXTENSION[mimeType] || "";
+}
+
+function isAllowedMimeType(mimeType) {
+  return ALLOWED_MIME_TYPES.has(mimeType);
+}
+
+function isValidDocumentStatus(status) {
+  return DOCUMENT_STATUSES.includes(status);
+}
+
+/**
+ * Generate a secure object key for private B2 storage. The extension is
+ * derived from the uploaded MIME type so the stored key can still be
+ * served with a sensible Content-Type. The original filename is never
+ * used as the key.
+ */
+function generateStorageKey(mimeType) {
+  const ext = getExtensionForMime(mimeType) || ".bin";
+  return crypto.randomUUID() + ext;
+}
+
+function sha256Buffer(buffer) {
+  return crypto.createHash("sha256").update(buffer).digest("hex");
+}
+
+function sha256Stream(readable) {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash("sha256");
+    readable.on("error", reject);
+    readable.on("data", (chunk) => hash.update(chunk));
+    readable.on("end", () => resolve(hash.digest("hex")));
+  });
+}
+
+function sha256File(filePath) {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash("sha256");
+    const stream = fs.createReadStream(filePath);
+    stream.on("error", reject);
+    stream.on("data", (chunk) => hash.update(chunk));
+    stream.on("end", () => resolve(hash.digest("hex")));
+  });
+}
+
+async function findDocumentById(id) {
+  const [rows] = await pool.query(
+    "SELECT d.id, d.case_id, d.title, d.description, d.document_type, " +
+      "d.status, d.current_version, d.uploaded_by, d.created_at, d.updated_at, " +
+      "u.username AS uploader_username, u.full_name AS uploader_name " +
+      "FROM documents d " +
+      "LEFT JOIN users u ON u.id = d.uploaded_by " +
+      "WHERE d.id = ? LIMIT 1",
+    [id]
+  );
+  return rows[0] || null;
+}
+
+async function findDocumentVersion(documentId, versionNumber) {
+  const [rows] = await pool.query(
+    "SELECT dv.id, dv.document_id, dv.version_number, dv.file_path, " +
+      "dv.original_file_name, dv.stored_file_name, dv.mime_type, " +
+      "dv.file_size, dv.checksum, dv.uploaded_by, dv.created_at, " +
+      "u.username AS uploader_username, u.full_name AS uploader_name " +
+      "FROM document_versions dv " +
+      "LEFT JOIN users u ON u.id = dv.uploaded_by " +
+      "WHERE dv.document_id = ? AND dv.version_number = ? LIMIT 1",
+    [documentId, versionNumber]
+  );
+  return rows[0] || null;
+}
+
+async function findVersionsByDocument(documentId) {
+  const [rows] = await pool.query(
+    "SELECT dv.id, dv.document_id, dv.version_number, " +
+      "dv.original_file_name, dv.mime_type, dv.file_size, dv.checksum, " +
+      "dv.uploaded_by, dv.created_at, " +
+      "u.username AS uploader_username, u.full_name AS uploader_name " +
+      "FROM document_versions dv " +
+      "LEFT JOIN users u ON u.id = dv.uploaded_by " +
+      "WHERE dv.document_id = ? " +
+      "ORDER BY dv.version_number DESC",
+    [documentId]
+  );
+  return rows;
+}
+
+async function findAllDocuments({
+  page = 1,
+  limit = 20,
+  search = "",
+  status = "",
+  documentType = "",
+  caseId = "",
+  sort = "id",
+  order = "asc",
+  officerId = null,
+  ownerUserId = null,
+} = {}) {
+  const safePage = Math.max(1, Number(page) || 1);
+  const safeLimit = Math.min(100, Math.max(1, Number(limit) || 20));
+  const offset = (safePage - 1) * safeLimit;
+
+  const where = [];
+  const params = [];
+
+  if (search && String(search).trim()) {
+    where.push(
+      "(d.title LIKE ? OR d.description LIKE ? OR d.document_type LIKE ?)"
+    );
+    const like = `%${String(search).trim()}%`;
+    params.push(like, like, like);
+  }
+  if (status && isValidDocumentStatus(status)) {
+    where.push("d.status = ?");
+    params.push(status);
+  }
+  if (documentType && String(documentType).trim()) {
+    where.push("d.document_type = ?");
+    params.push(String(documentType).trim());
+  }
+  if (caseId && Number(caseId) > 0) {
+    where.push("d.case_id = ?");
+    params.push(Number(caseId));
+  }
+  // Assignment-first officer scope: officers only see documents of cases they
+  // are assigned to, or documents they uploaded themselves.
+  if (officerId && Number(officerId) > 0) {
+    const scopedId = Number(officerId);
+    where.push(
+      "(" +
+        "d.uploaded_by = ? " +
+        "OR EXISTS (SELECT 1 FROM cases co WHERE co.id = d.case_id AND co.assigned_to = ?) " +
+        "OR EXISTS (SELECT 1 FROM case_assignments cao " +
+        "WHERE cao.case_id = d.case_id AND cao.user_id = ? AND cao.assignment_role = 'officer')" +
+        ")"
+    );
+    params.push(scopedId, scopedId, scopedId);
+  }
+  // User scope: regular users only see documents they uploaded, or documents
+  // attached to cases they created.
+  if (ownerUserId && Number(ownerUserId) > 0) {
+    const scopedId = Number(ownerUserId);
+    where.push(
+      "(" +
+        "d.uploaded_by = ? " +
+        "OR EXISTS (SELECT 1 FROM cases cu WHERE cu.id = d.case_id AND cu.created_by = ?)" +
+        ")"
+    );
+    params.push(scopedId, scopedId);
+  }
+
+  const whereSql = where.length ? "WHERE " + where.join(" AND ") : "";
+
+  const sortCol = DOCUMENT_SORTABLE_COLUMNS.includes(sort) ? sort : "id";
+  const orderDir = String(order).toLowerCase() === "desc" ? "DESC" : "ASC";
+
+  const [countResult] = await pool.query(
+    "SELECT COUNT(*) AS total FROM documents d " + whereSql,
+    params
+  );
+  const total = countResult[0].total;
+
+  const [rows] = await pool.query(
+    "SELECT d.id, d.case_id, d.title, d.description, d.document_type, " +
+      "d.status, d.current_version, d.uploaded_by, " +
+      "d.created_at, d.updated_at, " +
+      "u.username AS uploader_username, u.full_name AS uploader_name " +
+      "FROM documents d " +
+      "LEFT JOIN users u ON u.id = d.uploaded_by " +
+      whereSql +
+      ` ORDER BY d.${sortCol} ${orderDir}, d.id ASC LIMIT ? OFFSET ?`,
+    [...params, safeLimit, offset]
+  );
+
+  return {
+    documents: rows,
+    total,
+    page: safePage,
+    limit: safeLimit,
+    totalPages: Math.ceil(total / safeLimit),
+  };
+}
+
+async function createDocument(data) {
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+
+    const [docResult] = await connection.query(
+      "INSERT INTO documents " +
+        "(case_id, title, description, document_type, status, current_version, uploaded_by) " +
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+      [
+        data.caseId != null ? data.caseId : null,
+        data.title,
+        data.description != null ? data.description : null,
+        data.documentType != null ? data.documentType : null,
+        "active",
+        1,
+        data.uploadedBy,
+      ]
+    );
+    const documentId = docResult.insertId;
+
+    const [versionResult] = await connection.query(
+      "INSERT INTO document_versions " +
+        "(document_id, version_number, file_path, original_file_name, " +
+        "stored_file_name, mime_type, file_size, checksum, uploaded_by) " +
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      [
+        documentId,
+        1,
+        data.storedFileName,
+        data.originalFileName,
+        data.storedFileName,
+        data.mimeType,
+        data.fileSize,
+        data.checksum != null ? data.checksum : null,
+        data.uploadedBy,
+      ]
+    );
+
+    await connection.commit();
+    return { documentId, versionId: versionResult.insertId };
+  } catch (err) {
+    await connection.rollback();
+    throw err;
+  } finally {
+    connection.release();
+  }
+}
+
+async function createVersion(data) {
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+
+    const [docRows] = await connection.query(
+      "SELECT current_version FROM documents WHERE id = ? FOR UPDATE",
+      [data.documentId]
+    );
+    if (!docRows[0]) {
+      await connection.rollback();
+      const err = new Error("Document not found");
+      err.statusCode = 404;
+      err.expose = true;
+      throw err;
+    }
+
+    const nextVersion = Number(docRows[0].current_version) + 1;
+
+    const [versionResult] = await connection.query(
+      "INSERT INTO document_versions " +
+        "(document_id, version_number, file_path, original_file_name, " +
+        "stored_file_name, mime_type, file_size, checksum, uploaded_by) " +
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      [
+        data.documentId,
+        nextVersion,
+        data.storedFileName,
+        data.originalFileName,
+        data.storedFileName,
+        data.mimeType,
+        data.fileSize,
+        data.checksum != null ? data.checksum : null,
+        data.uploadedBy,
+      ]
+    );
+
+    await connection.query(
+      "UPDATE documents SET current_version = ?, updated_at = CURRENT_TIMESTAMP " +
+        "WHERE id = ?",
+      [nextVersion, data.documentId]
+    );
+
+    await connection.commit();
+    return { versionId: versionResult.insertId, versionNumber: nextVersion };
+  } catch (err) {
+    await connection.rollback();
+    throw err;
+  } finally {
+    connection.release();
+  }
+}
+
+async function softDeleteDocument(id) {
+  const [result] = await pool.query(
+    "UPDATE documents SET status = 'deleted' WHERE id = ? AND status != 'deleted'",
+    [id]
+  );
+  return result.affectedRows > 0;
+}
+
+/**
+ * Safe sort columns for the Phase 8 document search API. Anything not
+ * on this list is rejected so no arbitrary (or unsafe) SQL column can
+ * be injected.
+ */
+const SEARCH_SORTABLE_COLUMNS = [
+  "id",
+  "title",
+  "document_type",
+  "status",
+  "case_id",
+  "current_version",
+  "created_at",
+  "updated_at",
+];
+
+/**
+ * Phase 8 search API for documents. Same safe pattern as
+ * findAllDocuments but additionally searches original_file_name (via a
+ * correlated EXISTS on document_versions so multi-version documents
+ * return exactly one row) and the related case_number. Selects only
+ * public metadata — never file_path or stored_file_name. Fully
+ * parameterized.
+ * @param {{
+ *   page?: number,
+ *   limit?: number,
+ *   q?: string,
+ *   status?: string,
+ *   documentType?: string,
+ *   caseId?: number|string,
+ *   sort?: string,
+ *   order?: string
+ * }} opts
+ * @returns {Promise<{ documents: object[], total: number, page: number, limit: number, totalPages: number }>}
+ */
+async function searchDocuments({
+  page = 1,
+  limit = 20,
+  q = "",
+  status = "",
+  documentType = "",
+  caseId = "",
+  sort = "id",
+  order = "asc",
+  officerId = null,
+  ownerUserId = null,
+} = {}) {
+  const safePage = Math.max(1, Number(page) || 1);
+  const safeLimit = Math.min(100, Math.max(1, Number(limit) || 20));
+  const offset = (safePage - 1) * safeLimit;
+
+  const where = [];
+  const params = [];
+
+  if (q && String(q).trim()) {
+    where.push(
+      "(d.title LIKE ? OR d.description LIKE ? OR d.document_type LIKE ? " +
+        "OR c.case_number LIKE ? OR EXISTS (SELECT 1 FROM document_versions dv " +
+        "WHERE dv.document_id = d.id AND dv.original_file_name LIKE ?) " +
+        "OR EXISTS (SELECT 1 FROM document_contents dc " +
+        "WHERE dc.document_id = d.id AND dc.extracted_text LIKE ?))"
+    );
+    const like = `%${String(q).trim()}%`;
+    params.push(like, like, like, like, like, like);
+  }
+  if (status && isValidDocumentStatus(status)) {
+    where.push("d.status = ?");
+    params.push(status);
+  }
+  if (documentType && String(documentType).trim()) {
+    where.push("d.document_type = ?");
+    params.push(String(documentType).trim());
+  }
+  if (caseId && Number(caseId) > 0) {
+    where.push("d.case_id = ?");
+    params.push(Number(caseId));
+  }
+  if (officerId && Number(officerId) > 0) {
+    const scopedId = Number(officerId);
+    where.push(
+      "(" +
+        "d.uploaded_by = ? " +
+        "OR EXISTS (SELECT 1 FROM cases so WHERE so.id = d.case_id AND so.assigned_to = ?) " +
+        "OR EXISTS (SELECT 1 FROM case_assignments sao " +
+        "WHERE sao.case_id = d.case_id AND sao.user_id = ? AND sao.assignment_role = 'officer')" +
+        ")"
+    );
+    params.push(scopedId, scopedId, scopedId);
+  }
+  if (ownerUserId && Number(ownerUserId) > 0) {
+    const scopedId = Number(ownerUserId);
+    where.push(
+      "(" +
+        "d.uploaded_by = ? " +
+        "OR EXISTS (SELECT 1 FROM cases su WHERE su.id = d.case_id AND su.created_by = ?)" +
+        ")"
+    );
+    params.push(scopedId, scopedId);
+  }
+
+  const whereSql = where.length ? "WHERE " + where.join(" AND ") : "";
+
+  const sortCol = SEARCH_SORTABLE_COLUMNS.includes(sort) ? sort : "id";
+  const orderDir = String(order).toLowerCase() === "desc" ? "DESC" : "ASC";
+
+  const [countResult] = await pool.query(
+    "SELECT COUNT(*) AS total FROM documents d " +
+      "LEFT JOIN cases c ON c.id = d.case_id " +
+      whereSql,
+    params
+  );
+  const total = countResult[0].total;
+
+  const [rows] = await pool.query(
+    "SELECT d.id, d.case_id, d.title, d.description, d.document_type, " +
+      "d.status, d.current_version, d.uploaded_by, " +
+      "d.created_at, d.updated_at, " +
+      "c.case_number AS case_number, " +
+      "u.username AS uploader_username, u.full_name AS uploader_name " +
+      "FROM documents d " +
+      "LEFT JOIN cases c ON c.id = d.case_id " +
+      "LEFT JOIN users u ON u.id = d.uploaded_by " +
+      whereSql +
+      ` ORDER BY d.${sortCol} ${orderDir}, d.id ASC LIMIT ? OFFSET ?`,
+    [...params, safeLimit, offset]
+  );
+
+  return {
+    documents: rows,
+    total,
+    page: safePage,
+    limit: safeLimit,
+    totalPages: Math.ceil(total / safeLimit),
+  };
+}
+
+module.exports = {
+  MAX_FILE_SIZE,
+  DOCUMENT_STATUSES,
+  DOCUMENT_SORTABLE_COLUMNS,
+  getExtensionForMime,
+  isAllowedMimeType,
+  isValidDocumentStatus,
+  generateStorageKey,
+  sha256Buffer,
+  sha256Stream,
+  sha256File,
+  findDocumentById,
+  findDocumentVersion,
+  findVersionsByDocument,
+  findAllDocuments,
+  searchDocuments,
+  createDocument,
+  createVersion,
+  softDeleteDocument,
+};

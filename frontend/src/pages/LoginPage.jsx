@@ -1,16 +1,45 @@
 ﻿import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import { apiFetch } from "../api/api";
 import "./LoginPage.css";
 
 function LoginPage() {
+  const navigate = useNavigate();
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+const handleSubmit = async (event) => {
+  event.preventDefault();
 
-  const handleSubmit = (event) => {
-    event.preventDefault();
-    console.log("Login attempted with:", { email, password });
-  };
+  try {
+       const data = await apiFetch("/auth/login", {
+  method: "POST",
+  body: JSON.stringify({
+    email,
+    password,
+  }),
+});
+   if (!data.success) {
+  throw new Error(data.message || "Login failed");
+}
+
+    // Store JWT for authenticated API requests
+    localStorage.setItem("token", data.token);
+
+    // Store user information if returned by the backend
+    if (data.user) {
+      localStorage.setItem("user", JSON.stringify(data.user));
+    }
+
+    console.log("✅ Login successful");
+
+    navigate("/dashboard");
+  } catch (error) {
+    console.error("Login error:", error);
+    alert(error.message);
+  }
+};
 
   const togglePasswordVisibility = () => {
     setShowPassword((prev) => !prev);

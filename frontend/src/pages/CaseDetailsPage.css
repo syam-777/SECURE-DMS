@@ -229,6 +229,51 @@
   background: #1d4ed8;
 }
 
+.submit-review-button {
+  padding: 8px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #ffffff;
+  background: #7c3aed;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.submit-review-button:hover {
+  background: #6d28d9;
+}
+
+.submit-review-confirm-button {
+  padding: 10px 18px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #ffffff;
+  background: #7c3aed;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.submit-review-confirm-button:hover {
+  background: #6d28d9;
+}
+
+.submit-review-confirm-button:disabled,
+.submit-review-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.submit-review-note {
+  margin: 4px 0 16px;
+  font-size: 14px;
+  color: #475569;
+  line-height: 1.5;
+}
+
 .status-badge {
   padding: 4px 10px;
   border-radius: 999px;
@@ -402,6 +447,132 @@
 .integrity-tampered {
   background: #fee2e2;
   color: #b91c1c;
+}
+
+/* Real backend statuses */
+.status-open {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.status-in_progress {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.status-under_review {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.status-returned {
+  background: #fce7f3;
+  color: #be185d;
+}
+
+.status-archived {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.status-closed {
+  background: #e2e8f0;
+  color: #475569;
+}
+
+/* Document status badges (real document.status values) */
+.integrity-active {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.integrity-archived {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.integrity-deleted {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+/* Real audit action badges */
+.action-case_created {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.action-case_updated {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.action-case_status_changed {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.action-case_assigned {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.action-case_unassigned {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.action-case_deleted {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.action-document_created,
+.action-document_uploaded {
+  background: #e0e7ff;
+  color: #3730a3;
+}
+
+.action-document_downloaded {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.action-document_deleted {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.action-document_summarized {
+  background: #fce7f3;
+  color: #be185d;
+}
+
+.action-version_created {
+  background: #e0e7ff;
+  color: #3730a3;
+}
+
+/* Loading / error messages */
+.cases-message {
+  padding: 32px;
+  text-align: center;
+  color: #475569;
+  font-size: 15px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  margin: 24px 0;
+}
+
+.cases-error {
+  background: #fee2e2;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin: 16px 0;
+  font-size: 14px;
 }
 
 .action-buttons {
@@ -1109,4 +1280,143 @@
     flex-direction: column;
     gap: 8px;
   }
+}
+
+/* --- Officer assignment panel ------------------------------- */
+.assignment-panel {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 20px 24px;
+  margin-bottom: 24px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.assignment-panel-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.assignment-panel-subtitle {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: #6b7280;
+}
+
+.assignment-panel-body {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.assignment-current {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 220px;
+}
+
+.assignment-current-label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #9ca3af;
+}
+
+.assignment-current-name {
+  font-size: 16px;
+  font-weight: 600;
+  color: #111827;
+}
+
+.assignment-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.assign-officer-button {
+  padding: 8px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #ffffff;
+  background: #0d9488;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.assign-officer-button:hover {
+  background: #0f766e;
+}
+
+.assign-officer-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.assign-officer-confirm-button {
+  padding: 10px 18px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #ffffff;
+  background: #0d9488;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.assign-officer-confirm-button:hover {
+  background: #0f766e;
+}
+
+.assign-officer-confirm-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.unassign-officer-button {
+  padding: 8px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #b91c1c;
+  background: #ffffff;
+  border: 1px solid #fca5a5;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.unassign-officer-button:hover {
+  background: #fef2f2;
+}
+
+.unassign-officer-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.assignment-message {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.assignment-message.assignment-error {
+  color: #b91c1c;
+}
+
+.assignment-message.assignment-success {
+  color: #047857;
+}
+
+.assignment-assigned-note {
+  font-size: 13px;
+  color: #047857;
+  font-weight: 600;
 }

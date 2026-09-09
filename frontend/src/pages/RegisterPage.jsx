@@ -1,24 +1,55 @@
 ﻿import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import { apiFetch } from "../api/api";
 import "./RegisterPage.css";
 
 function RegisterPage() {
+  const navigate = useNavigate();
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [error, setError] = useState("");
+const [success, setSuccess] = useState("");
+const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (event) => {
-    event.preventDefault();
-    console.log("Register attempted with:", {
-      fullName,
-      email,
-      password,
-      confirmPassword,
+  const handleSubmit = async (event) => {
+  event.preventDefault();
+
+  setError("");
+  setSuccess("");
+
+  if (password !== confirmPassword) {
+    setError("Passwords do not match");
+    return;
+  }
+
+  setLoading(true);
+
+  try {
+    const data = await apiFetch("/auth/register", {
+      method: "POST",
+      body: JSON.stringify({
+        fullName,
+        email,
+        password,
+        confirmPassword,
+      }),
     });
-  };
+
+    setSuccess(data.message || "Account created successfully");
+
+    setTimeout(() => {
+      navigate("/login");
+    }, 1500);
+  } catch (err) {
+    setError(err.message || "Registration failed");
+  } finally {
+    setLoading(false);
+  }
+};
 
   const togglePasswordVisibility = () => {
     setShowPassword((prev) => !prev);
@@ -41,7 +72,9 @@ function RegisterPage() {
 
         <h1 className="register-title">Create an Account</h1>
         <p className="register-subtitle">Join Secure DMS to manage your documents</p>
-
+         {error && <p className="form-error">{error}</p>}
+         {success && <p className="form-success">{success}</p>}
+         
         <form className="register-form" onSubmit={handleSubmit}>
           <div className="form-group">
             <label htmlFor="fullName">Full Name</label>
@@ -111,9 +144,13 @@ function RegisterPage() {
             </div>
           </div>
 
-          <button type="submit" className="register-button">
-            Register
-          </button>
+          <button
+  type="submit"
+  className="register-button"
+  disabled={loading}
+>
+  {loading ? "Creating Account..." : "Register"}
+</button>
         </form>
 
         <div className="register-footer">

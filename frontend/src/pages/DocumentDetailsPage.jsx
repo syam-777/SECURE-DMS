@@ -1,620 +1,297 @@
 import { useState, useEffect, useCallback } from "react";
-import { NavLink, Link } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import "./DocumentDetailsPage.css";
+import { apiFetch, API_BASE_URL } from "../api/api";
+import AppLayout from "../components/AppLayout";
 
-const documentData = {
-  id: "DOC-5001",
-  name: "FIR_Report_CASE1001.pdf",
-  type: "FIR Report",
-  caseId: "CASE-1001",
-  uploadedBy: "Sgt. A. Sharma",
-  uploaded: "2026-08-12",
-  updated: "2026-09-02",
-  status: "Verified",
-  description:
-    "The First Information Report filed for the Cyber Fraud Investigation case CASE-1001. This document records the initial complaint registered by the affected parties, including the nature of the alleged offense, the financial losses reported, and the preliminary information collected at the time of registration.",
-};
+function formatDate(value) {
+  return value ? new Date(value).toLocaleDateString("en-IN") : "-";
+}
+function formatDateTime(value) {
+  return value ? new Date(value).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }) : "-";
+}
+function formatBytes(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "-";
+  if (n < 1024) return `${n} B`;
+  if (n < 1048576) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / 1048576).toFixed(2)} MB`;
+}
+function statusText(value) {
+  return value ? value.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()) : "-";
+}
 
-const integrityData = {
-  status: "Verified",
-  hash: "SAMPLE_FAKE_HASH_0a1b2c3d4e5f6789abcdef0123456789abcdef0123456789abcdef012345678",
-  lastVerified: "2026-09-02",
-};
-
-const documentVersions = [
-  {
-    version: 3,
-    updatedBy: "Sgt. A. Sharma",
-    date: "2026-09-02",
-    action:
-      "Updated the document metadata with additional investigation findings.",
-    integrity: "Verified",
-  },
-  {
-    version: 2,
-    updatedBy: "Sgt. A. Sharma",
-    date: "2026-08-25",
-    action:
-      "Added supplementary sections covering witness statements and new evidence.",
-    integrity: "Verified",
-  },
-  {
-    version: 1,
-    updatedBy: "Admin User",
-    date: "2026-08-12",
-    action: "Initial upload of the FIR report for case CASE-1001.",
-    integrity: "Verified",
-  },
-];
-
-const activityHistory = [
-  {
-    action: "Document uploaded",
-    user: "Sgt. A. Sharma",
-    date: "2026-08-12 10:15 AM",
-  },
-  {
-    action: "Document verified",
-    user: "System",
-    date: "2026-08-12 10:16 AM",
-  },
-  {
-    action: "Document viewed",
-    user: "Insp. R. Verma",
-    date: "2026-08-20 03:45 PM",
-  },
-  {
-    action: "New version created",
-    user: "Sgt. A. Sharma",
-    date: "2026-08-25 11:30 AM",
-  },
-  {
-    action: "Document viewed",
-    user: "Admin User",
-    date: "2026-09-01 09:05 AM",
-  },
-  {
-    action: "New version created",
-    user: "Sgt. A. Sharma",
-    date: "2026-09-02 10:40 AM",
-  },
-];
+async function fileRequest(path, options = {}) {
+  const token = localStorage.getItem("token");
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...options,
+    headers: {
+      ...(options.headers || {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
+    }
+  });
+  if (!response.ok) {
+    let message = "Request failed";
+    try { message = (await response.json()).message || message; } catch {}
+    throw new Error(message);
+  }
+  return response;
+}
 
 function DocumentDetailsPage() {
-  const [activeTab, setActiveTab] = useState("versions");
-  const [selectedVersion, setSelectedVersion] = useState(3);
-  const [showPreview, setShowPreview] = useState(false);
+  const { documentId } = useParams();
 
-  const closePreview = useCallback(() => setShowPreview(false), []);
+  const [doc, setDoc] = useState(null);
+  const [currentVersion, setCurrentVersion] = useState(null);
+  const [versions, setVersions] = useState([]);
+  const [cases, setCases] = useState([]);
+  const [selectedVersion, setSelectedVersion] = useState(null);
+  const [tab, setTab] = useState("versions");
+  const [loading, setLoading] = useState(true);
+  const [versionLoading, setVersionLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [verify, setVerify] = useState(null);
+ const [previewUrl, setPreviewUrl] = useState("");
+const [previewText, setPreviewText] = useState("");
+const [showPreview, setShowPreview] = useState(false);
+  const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    const handleEscape = (e) => {
-      if (e.key === "Escape") closePreview();
-    };
-    if (showPreview) {
-      document.addEventListener("keydown", handleEscape);
-      document.body.style.overflow = "hidden";
+  const loadDocument = useCallback(async () => {
+    setLoading(true); setError("");
+    try {
+      const [d, c] = await Promise.all([
+        apiFetch(`/documents/${documentId}`),
+        apiFetch("/cases?limit=100")
+      ]);
+      setDoc(d.document);
+      setCurrentVersion(d.currentVersion || null);
+      setCases(c.cases || []);
+    } catch (e) {
+      setError(e.message || "Failed to load document");
+    } finally { setLoading(false); }
+  }, [documentId]);
+
+  const loadVersions = useCallback(async () => {
+    setVersionLoading(true);
+    try {
+      const data = await apiFetch(`/documents/${documentId}/versions`);
+      const list = data.versions || [];
+      setVersions(list);
+      setSelectedVersion(v => v ?? list[0]?.version_number ?? null);
+    } catch (e) {
+      setError(e.message || "Failed to load versions");
+    } finally { setVersionLoading(false); }
+  }, [documentId]);
+
+  useEffect(() => { loadDocument(); loadVersions(); }, [loadDocument, loadVersions]);
+  useEffect(() => () => previewUrl && URL.revokeObjectURL(previewUrl), [previewUrl]);
+
+  const caseNumber = cases.find(c => String(c.id) === String(doc?.case_id))?.case_number || doc?.case_number || "-";
+  const uploader = doc?.uploader_name || doc?.uploader_username || doc?.uploaded_by || "-";
+  const versionNumber = doc?.current_version ?? currentVersion?.version_number ?? "-";
+  const selected = versions.find(v => Number(v.version_number) === Number(selectedVersion)) || currentVersion;
+
+  const download = async (version = null) => {
+    try {
+      setBusy(true);
+      const path = version
+        ? `/documents/${documentId}/versions/${version}/download`
+        : `/documents/${documentId}/download`;
+      const response = await fileRequest(path);
+      const url = URL.createObjectURL(await response.blob());
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = version
+        ? versions.find(v => Number(v.version_number) === Number(version))?.original_file_name || `document-v${version}`
+        : currentVersion?.original_file_name || doc?.title || "document";
+      document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    } catch (e) { alert(e.message || "Download failed"); }
+    finally { setBusy(false); }
+  };
+
+ const preview = async () => {
+  try {
+    setBusy(true);
+
+    const response = await fileRequest(`/documents/${documentId}/download`);
+    const blob = await response.blob();
+
+    const fileName =
+      currentVersion?.original_file_name ||
+      doc?.title ||
+      "";
+
+    if (fileName.toLowerCase().endsWith(".txt")) {
+      const text = await blob.text();
+      setPreviewText(text);
+      setPreviewUrl("");
+    } else {
+      const url = URL.createObjectURL(blob);
+
+      if (previewUrl) {
+        URL.revokeObjectURL(previewUrl);
+      }
+
+      setPreviewUrl(url);
+      setPreviewText("");
     }
-    return () => {
-      document.removeEventListener("keydown", handleEscape);
-      document.body.style.overflow = "";
-    };
-  }, [showPreview, closePreview]);
 
-  const displayHash =
-    integrityData.hash.slice(0, 12) + "..." + integrityData.hash.slice(-12);
+    setShowPreview(true);
+  } catch (e) {
+    alert(e.message || "Preview failed");
+  } finally {
+    setBusy(false);
+  }
+};
+  const verifyVersion = async (version = versionNumber) => {
+    try {
+      setVerify({ loading: true });
+      const data = await apiFetch(`/documents/${documentId}/versions/${version}/verify`);
+      setVerify(data);
+      await loadDocument(); await loadVersions();
+    } catch (e) { setVerify({ success: false, message: e.message || "Verification failed" }); }
+  };
+
+  const uploadVersion = async e => {
+    const file = e.target.files?.[0]; e.target.value = "";
+    if (!file) return;
+    try {
+      setBusy(true);
+      const form = new FormData(); form.append("file", file);
+      const response = await fileRequest(`/documents/${documentId}/versions`, { method: "POST", body: form });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || "Upload failed");
+      alert("New document version uploaded successfully.");
+      await loadDocument(); await loadVersions();
+    } catch (err) { alert(err.message || "Upload failed"); }
+    finally { setBusy(false); }
+  };
+
+  if (loading) return <div className="document-details-page"><AppLayout><main className="details-container"><p>Loading document...</p></main></AppLayout></div>;
+  if (error && !doc) return <div className="document-details-page"><AppLayout><main className="details-container"><div className="error-message">{error}</div><Link to="/documents">← Back to Documents</Link></main></AppLayout></div>;
 
   return (
     <div className="document-details-page">
-      <nav className="navbar">
-        <div className="navbar-brand">
-          <span className="brand-icon">&#128274;</span>
-          <span className="brand-text">Secure DMS</span>
-        </div>
-        <div className="navbar-right">
-          <button className="icon-button" aria-label="Notifications">
-            &#128276;
-          </button>
-          <div className="user-area">
-            <span className="user-avatar">A</span>
-            <span className="user-name">Admin User</span>
+      <AppLayout>
+      <main className="details-container">
+        <Link to="/documents" className="back-link">← Back to Documents</Link>
+        <h1>Document Details</h1>
+        <p>Viewing details for document {doc.id}.</p>
+
+        <section className="document-header-card">
+          <div>
+            <h2>{currentVersion?.original_file_name || doc.title}</h2>
+            <p>{doc.description || "No description provided."}</p>
           </div>
-          <button className="logout-button">Logout</button>
-        </div>
-      </nav>
+          <div className="document-actions">
+            <button onClick={() => verifyVersion()} disabled={verify?.loading}>{verify?.loading ? "Verifying..." : "✓ Verify Integrity"}</button>
+            <button onClick={preview} disabled={busy}>🔍 Preview</button>
+            <button onClick={() => download()} disabled={busy}>Download</button>
+          </div>
+        </section>
 
-      <div className="dashboard-body">
-        <aside className="sidebar">
-          <NavLink
-            className={({ isActive }) =>
-              "sidebar-item" + (isActive ? " active" : "")
-            }
-            to="/dashboard"
-          >
-            Dashboard
-          </NavLink>
-          <NavLink
-            className={({ isActive }) =>
-              "sidebar-item" + (isActive ? " active" : "")
-            }
-            to="/cases"
-          >
-            Cases
-          </NavLink>
-          <NavLink
-            className={({ isActive }) =>
-              "sidebar-item" + (isActive ? " active" : "")
-            }
-            to="/documents"
-          >
-            Documents
-          </NavLink>
-          <NavLink
-            className={({ isActive }) =>
-              "sidebar-item" + (isActive ? " active" : "")
-            }
-            to="/ai-assistant"
-          >
-            AI Assistant
-          </NavLink>
-          <NavLink
-            className={({ isActive }) =>
-              "sidebar-item" + (isActive ? " active" : "")
-            }
-            to="/search"
-          >
-            Search
-          </NavLink>
-          <NavLink
-            className={({ isActive }) =>
-              "sidebar-item" + (isActive ? " active" : "")
-            }
-            to="/audit-logs"
-          >
-            Audit Logs
-          </NavLink>
-        </aside>
+        <section className="document-info-grid">
+          <div><strong>Document ID</strong><span>{doc.id}</span></div>
+          <div><strong>Document Type</strong><span>{doc.document_type || "-"}</span></div>
+          <div><strong>Case ID</strong><span>{caseNumber}</span></div>
+          <div><strong>Uploaded By</strong><span>{uploader}</span></div>
+          <div><strong>Uploaded Date</strong><span>{formatDate(doc.created_at)}</span></div>
+          <div><strong>Last Updated</strong><span>{formatDate(doc.updated_at)}</span></div>
+          <div><strong>Status</strong><span>{statusText(doc.status)}</span></div>
+          <div><strong>Current Version</strong><span>{versionNumber}</span></div>
+        </section>
 
-        <main className="main-content">
-          <div className="page-heading">
-            <div className="page-heading-row">
-              <div>
-                <h1 className="page-title">Document Details</h1>
-                <p className="page-description">
-                  Viewing details for document {documentData.id}.
-                </p>
-              </div>
-              <Link to="/documents" className="back-button">
-                &#8592; Back to Documents
-              </Link>
-            </div>
+        <section className="integrity-card">
+          <h2>🛡 Security / Integrity</h2>
+          <p><strong>SHA-256 Hash:</strong> {currentVersion?.checksum || "No checksum available"}</p>
+          <p><strong>Current Version:</strong> {versionNumber}</p>
+          {verify && !verify.loading && <div className={verify.success ? "success-message" : "error-message"}>{verify.message || (verify.verified ? "Integrity verified successfully." : "Integrity verification completed.")}</div>}
+        </section>
+
+        <section className="tabs-section">
+          <div className="tabs">
+            <button className={tab === "versions" ? "active" : ""} onClick={() => setTab("versions")}>Version History</button>
+            <button className={tab === "activity" ? "active" : ""} onClick={() => setTab("activity")}>Activity History</button>
           </div>
 
-          <div className="doc-info-card">
-            <div className="doc-info-header">
-              <h2 className="doc-info-title">{documentData.name}</h2>
-              <span
-                className={`status-badge status-${documentData.status.toLowerCase()}`}
-              >
-                {documentData.status}
-              </span>
-              <button
-                className="preview-button"
-                onClick={() => setShowPreview(true)}
-                aria-label="Preview document"
-              >
-                &#128269; Preview Document
-              </button>
-            </div>
-            <div className="doc-info-grid">
-              <div className="doc-info-field">
-                <span className="doc-info-label">Document ID</span>
-                <span className="doc-info-value doc-id-highlight">
-                  {documentData.id}
-                </span>
-              </div>
-              <div className="doc-info-field">
-                <span className="doc-info-label">Document Type</span>
-                <span className="doc-info-value">{documentData.type}</span>
-              </div>
-              <div className="doc-info-field">
-                <span className="doc-info-label">Case ID</span>
-                <span className="doc-info-value doc-id-highlight">
-                  {documentData.caseId}
-                </span>
-              </div>
-              <div className="doc-info-field">
-                <span className="doc-info-label">Uploaded By</span>
-                <span className="doc-info-value">{documentData.uploadedBy}</span>
-              </div>
-              <div className="doc-info-field">
-                <span className="doc-info-label">Uploaded Date</span>
-                <span className="doc-info-value">{documentData.uploaded}</span>
-              </div>
-              <div className="doc-info-field">
-                <span className="doc-info-label">Last Updated</span>
-                <span className="doc-info-value">{documentData.updated}</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="doc-description-section">
-            <h3 className="section-title">Description</h3>
-            <p className="description-text">{documentData.description}</p>
-          </div>
-
-          <div className="integrity-card">
-            <div className="integrity-card-header">
-              <span className="integrity-card-icon">&#128737;</span>
-              <h3 className="integrity-card-title">Security / Integrity</h3>
-            </div>
-            <div className="integrity-grid">
-              <div className="integrity-field">
-                <span className="integrity-label">Integrity Status</span>
-                <span className="integrity-value">
-                  <span className="integrity-badge integrity-verified">
-                    &#10003; {integrityData.status}
-                  </span>
-                </span>
-              </div>
-              <div className="integrity-field">
-                <span className="integrity-label">SHA-256 Hash</span>
-                <span className="integrity-value integrity-hash">
-                  {displayHash}
-                </span>
-              </div>
-              <div className="integrity-field">
-                <span className="integrity-label">Last Verified</span>
-                <span className="integrity-value">
-                  {integrityData.lastVerified}
-                </span>
-              </div>
-            </div>
-            <p className="integrity-note">
-              The SHA-256 value shown above is a frontend placeholder for
-              demonstration purposes only. Real cryptographic hash verification
-              will be performed and validated by the backend during document
-              storage and integrity checks.
-            </p>
-          </div>
-
-          <div className="section-tabs">
-            <button
-              className={`section-tab ${activeTab === "versions" ? "active" : ""}`}
-              onClick={() => setActiveTab("versions")}
-            >
-              Version History
-            </button>
-            <button
-              className={`section-tab ${activeTab === "activity" ? "active" : ""}`}
-              onClick={() => setActiveTab("activity")}
-            >
-              Activity History
-            </button>
-          </div>
-
-          {activeTab === "versions" && (
-            <div className="version-section">
-              <div className="version-notice">
-                <span className="version-notice-icon">&#128274;</span>
-                <span>
-                  Previous versions are retained and cannot be silently
-                  overwritten. Each version has its own integrity record.
-                </span>
-              </div>
-              <div className="version-layout">
-                <div className="version-timeline">
-                  {documentVersions.map((entry, index) => (
-                    <div
-                      className={`version-entry ${selectedVersion === entry.version ? "selected" : ""}`}
-                      key={entry.version}
-                      onClick={() => setSelectedVersion(entry.version)}
-                      role="button"
-                      tabIndex={0}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          setSelectedVersion(entry.version);
-                        }
-                      }}
-                    >
-                      <div className="version-marker">
-                        <div
-                          className={`version-dot ${index === 0 ? "latest" : ""}`}
-                        />
-                        {index < documentVersions.length - 1 && (
-                          <div className="version-line" />
-                        )}
-                      </div>
-                      <div className="version-content">
-                        <div className="version-header">
-                          <span className="version-number">
-                            Version {entry.version}
-                          </span>
-                          {index === 0 && (
-                            <span className="version-latest-badge">Latest</span>
-                          )}
-                        </div>
-                        <p className="version-action">{entry.action}</p>
-                        <div className="version-meta">
-                          <span>{entry.updatedBy}</span>
-                          <span className="version-separator">&#183;</span>
-                          <span>{entry.date}</span>
-                        </div>
-                      </div>
-                    </div>
+          {tab === "versions" && (
+            <div className="versions-panel">
+              <label className="version-upload">
+                {busy ? "Uploading..." : "+ Upload New Version"}
+                <input type="file" hidden disabled={busy} onChange={uploadVersion} accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,.jpg,.jpeg,.png" />
+              </label>
+              {versionLoading ? <p>Loading versions...</p> : versions.length === 0 ? <p>No version history found.</p> : (
+                <div className="version-list">
+                  {versions.map(v => (
+                    <button type="button" className={`version-item ${Number(selectedVersion) === Number(v.version_number) ? "selected" : ""}`} key={v.id} onClick={() => setSelectedVersion(v.version_number)}>
+                      <strong>Version {v.version_number}{Number(v.version_number) === Number(versionNumber) ? " — Latest" : ""}</strong>
+                      <div>{v.original_file_name}</div>
+                      <div>{v.uploader_name || v.uploader_username || v.uploaded_by || "-"} · {formatDateTime(v.created_at)}</div>
+                    </button>
                   ))}
                 </div>
-                <div className="version-details-panel">
-                  {(() => {
-                    const entry = documentVersions.find(
-                      (v) => v.version === selectedVersion
-                    );
-                    if (!entry) return null;
-                    const isLatest = entry.version === documentVersions[0].version;
-                    return (
-                      <>
-                        <div className="version-details-header">
-                          <h3 className="version-details-title">
-                            Version {entry.version} Details
-                          </h3>
-                          {isLatest && (
-                            <span className="version-latest-badge">Current</span>
-                          )}
-                        </div>
-                        <div className="version-details-grid">
-                          <div className="version-detail-field">
-                            <span className="version-detail-label">
-                              Updated By
-                            </span>
-                            <span className="version-detail-value">
-                              {entry.updatedBy}
-                            </span>
-                          </div>
-                          <div className="version-detail-field">
-                            <span className="version-detail-label">Date</span>
-                            <span className="version-detail-value">
-                              {entry.date}
-                            </span>
-                          </div>
-                          <div className="version-detail-field">
-                            <span className="version-detail-label">
-                              Change Description
-                            </span>
-                            <span className="version-detail-value">
-                              {entry.action}
-                            </span>
-                          </div>
-                          <div className="version-detail-field">
-                            <span className="version-detail-label">
-                              Integrity Status
-                            </span>
-                            <span
-                              className={`integrity-badge integrity-${entry.integrity.toLowerCase()}`}
-                            >
-                              &#10003; {entry.integrity}
-                            </span>
-                          </div>
-                          <div className="version-detail-field">
-                            <span className="version-detail-label">
-                              Current Version
-                            </span>
-                            <span className="version-detail-value">
-                              {isLatest ? "Yes" : "No"}
-                            </span>
-                          </div>
-                        </div>
-                      </>
-                    );
-                  })()}
+              )}
+              {selected && (
+                <div className="version-details">
+                  <h3>Version {selected.version_number} Details</h3>
+                  <p><strong>File:</strong> {selected.original_file_name}</p>
+                  <p><strong>MIME Type:</strong> {selected.mime_type || "-"}</p>
+                  <p><strong>Size:</strong> {formatBytes(selected.file_size)}</p>
+                  <p><strong>Uploaded By:</strong> {selected.uploader_name || selected.uploader_username || selected.uploaded_by || "-"}</p>
+                  <p><strong>Created:</strong> {formatDateTime(selected.created_at)}</p>
+                  <p><strong>SHA-256:</strong> {selected.checksum || "-"}</p>
+                  <button onClick={() => download(selected.version_number)} disabled={busy}>Download This Version</button>
+                  <button onClick={() => verifyVersion(selected.version_number)}>Verify This Version</button>
                 </div>
-              </div>
+              )}
             </div>
           )}
 
-          {activeTab === "activity" && (
-            <div className="activity-section">
-              <div className="activity-list">
-                {activityHistory.map((item, index) => (
-                  <div className="activity-entry" key={index}>
-                    <div className="activity-icon">
-                      {item.action === "Document uploaded" && (
-                        <span>&#128228;</span>
-                      )}
-                      {item.action === "Document verified" && (
-                        <span>&#10003;</span>
-                      )}
-                      {item.action === "New version created" && (
-                        <span>&#9998;</span>
-                      )}
-                      {item.action === "Document viewed" && (
-                        <span>&#128065;</span>
-                      )}
-                    </div>
-                    <div className="activity-content">
-                      <div className="activity-header">
-                        <span className="action-badge">{item.action}</span>
-                        <span className="activity-date">{item.date}</span>
-                      </div>
-                      <span className="activity-user">by {item.user}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
+          {tab === "activity" && (
+            <div className="activity-panel">
+              <p>Activity shown here is derived from backend document and version records.</p>
+              <div className="activity-item"><strong>Document created</strong><span>{formatDateTime(doc.created_at)}</span><span>{uploader}</span></div>
+              {versions.map(v => <div className="activity-item" key={v.id}><strong>Version {v.version_number} recorded</strong><span>{formatDateTime(v.created_at)}</span><span>{v.uploader_name || v.uploader_username || v.uploaded_by || "-"}</span></div>)}
             </div>
           )}
-        </main>
-      </div>
+        </section>
+      </main>
+      </AppLayout>
+
       {showPreview && (
-        <div
-          className="preview-overlay"
-          onClick={closePreview}
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="preview-modal-title"
-        >
-          <div
-            className="preview-modal"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="preview-modal-header">
-              <div className="preview-modal-header-left">
-                <span className="preview-modal-icon">&#128196;</span>
-                <div>
-                  <h2 className="preview-modal-title" id="preview-modal-title">
-                    Document Preview
-                  </h2>
-                  <p className="preview-modal-subtitle">
-                    {documentData.name}
-                  </p>
-                </div>
-              </div>
-              <button
-                className="preview-close-x"
-                onClick={closePreview}
-                aria-label="Close preview"
-              >
-                &#10005;
-              </button>
-            </div>
-
-            <div className="preview-meta-bar">
-              <div className="preview-meta-item">
-                <span className="preview-meta-label">Document ID</span>
-                <span className="preview-meta-value">{documentData.id}</span>
-              </div>
-              <div className="preview-meta-item">
-                <span className="preview-meta-label">Case ID</span>
-                <span className="preview-meta-value">{documentData.caseId}</span>
-              </div>
-              <div className="preview-meta-item">
-                <span className="preview-meta-label">Type</span>
-                <span className="preview-meta-value">{documentData.type}</span>
-              </div>
-              <div className="preview-meta-item">
-                <span className="preview-meta-label">Version</span>
-                <span className="preview-meta-value">
-                  {selectedVersion}
-                </span>
-              </div>
-            </div>
-
-            <div className="preview-document">
-              <div className="preview-doc-header">
-                <div className="preview-doc-seal">&#127963;</div>
-                <div className="preview-doc-org">
-                  <strong>Ministry of Home Affairs</strong>
-                  <br />
-                  Cyber Crime Investigation Division
-                </div>
-                <div className="preview-doc-seal">&#127963;</div>
-              </div>
-
-              <div className="preview-doc-title-block">
-                <h3 className="preview-doc-heading">
-                  FIRST INFORMATION REPORT
-                </h3>
-                <div className="preview-doc-ref">
-                  FIR No: <strong>CYB-2026-04871</strong> &nbsp;|&nbsp; Date
-                  Registered: <strong>12 August 2026</strong> &nbsp;|&nbsp;
-                  Police Station: <strong>Cyber Crime Cell, Hyderabad</strong>
-                </div>
-              </div>
-
-              <div className="preview-doc-body">
-                <p>
-                  On 11 August 2026, a complaint was received at the Cyber
-                  Crime Cell, Hyderabad, from Mr. Rajesh Kumar Mehta (Aadhaar
-                  No. XXXX-XXXX-7842), residing at 14-5-238, Road No. 3,
-                  Banjara Hills, Hyderabad, Telangana 500034, alleging that he
-                  has been the victim of a sophisticated online banking fraud
-                  resulting in an unauthorized transfer of funds amounting to
-                  INR 12,47,500 (Twelve Lakh Forty-Seven Thousand Five Hundred
-                  Rupees) from his savings account held at State Bank of India,
-                  Banjara Hills Branch (Account No. XXXXXXXX3947).
-                </p>
-
-                <p>
-                  The complainant states that on 10 August 2026, between the
-                  hours of 14:30 and 15:15 IST, he received two consecutive
-                  SMS alerts from his bank notifying him of large outbound
-                  transfers. Upon immediate inquiry with the bank, it was
-                  confirmed that the transactions had been initiated from an
-                  unrecognized IP address (103.47.211.88) originating from a
-                  VPN endpoint located outside the jurisdiction. The complainant
-                  avers that he did not authorize, initiate, or consent to any
-                  such transfer, and that his mobile device and banking
-                  credentials were not at any time in his possession outside his
-                  direct control.
-                </p>
-
-                <p>
-                  Preliminary investigation has revealed that the unauthorized
-                  access was facilitated through a phishing campaign
-                  impersonating the bank's official mobile application. A
-                  malicious APK file (identified as
-                  "SBi-Mobile-Secure.apk", SHA-256 hash:
-                  e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855)
-                  was distributed via SMS to the complainant and approximately
-                  340 other individuals in the Telangana region between 05
-                  August and 10 August 2026. The malware intercepted OTP
-                  messages and session tokens, enabling the threat actor to
-                  execute fraudulent NEFT transactions across multiple accounts.
-                </p>
-
-                <p>
-                  Financial intelligence analysis conducted by the Indian
-                  Computer Emergency Response Team (CERT-In) in coordination
-                  with the National Cyber Crime Reporting Portal has identified
-                  a network of mule accounts receiving the stolen funds. The
-                  primary mule account (Account No. XXXXXXXX8812, Paytm
-                  Payments Bank) received INR 8,25,000 of the stolen amount
-                  before the account was frozen on 12 August 2026 at 09:00 AM
-                  pursuant to an interim order of the Chief Metropolitan
-                  Magistrate, Cyberabad.
-                </p>
-
-                <p>
-                  The remaining INR 4,22,500 has been traced through a series
-                  of cryptocurrency conversions (USDT-TRC20) and subsequent
-                  transfers to wallets on decentralized exchanges. The trail
-                  analysis is ongoing in coordination with international law
-                  enforcement agencies under the Budapest Convention on
-                  Cybercrime.
-                </p>
-
-                <p>
-                  The case has been registered under Sections 420 (Cheating),
-                  468 (Forgery for purpose of cheating), 471 (Using as genuine
-                  a forged document), and 66C (Identity theft) and 66D
-                  (Cheating by personation using computer resource) of the
-                  Information Technology Act, 2000, read with Sections 34 and
-                  120-B of the Indian Penal Code, 1860. Investigation is
-                  assigned to Inspector Rakesh Verma, Badge No. CYB-INS-0042,
-                  under the supervision of Deputy Commissioner of Police
-                  (Cyber Crimes), Telangana State.
-                </p>
-              </div>
-
-              <div className="preview-doc-footer">
-                <div className="preview-page-indicator">
-                  Page 1 of 3
-                </div>
-                <div className="preview-doc-notice">
-                  Preview shown for demonstration. Actual document content will
-                  be loaded from the backend later.
-                </div>
-              </div>
-            </div>
-
-            <div className="preview-modal-footer">
-              <button
-                className="preview-close-button"
-                onClick={closePreview}
-                aria-label="Close preview"
-              >
-                Close
-              </button>
-            </div>
+        <div className="preview-modal" onClick={() => setShowPreview(false)}>
+          <div className="preview-content" onClick={e => e.stopPropagation()}>
+            <div className="preview-header"><strong>{currentVersion?.original_file_name || doc.title}</strong><button onClick={() => setShowPreview(false)}>✕</button></div>
+           {previewText ? (
+  <pre
+    style={{
+      flex: 1,
+      margin: 0,
+      padding: "20px",
+      overflow: "auto",
+      background: "#ffffff",
+      color: "#111827",
+      fontFamily: "monospace",
+      fontSize: "15px",
+      lineHeight: "1.6",
+      whiteSpace: "pre-wrap",
+      textAlign: "left",
+    }}
+  >
+    {previewText}
+  </pre>
+) : (
+  <iframe
+    title="Document preview"
+    src={previewUrl}
+    style={{
+      flex: 1,
+      width: "100%",
+      border: 0,
+      background: "#ffffff",
+    }}
+  />
+)}
           </div>
         </div>
       )}
