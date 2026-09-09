@@ -25,10 +25,22 @@ const allowedOrigins = [
   "https://secure-qnxwk1r40-a1-9a8d.vercel.app",
 ];
 
+function isAllowedOrigin(origin) {
+  if (!origin) return true; // non-browser requests (curl, server-to-server)
+  if (allowedOrigins.includes(origin)) return true; // existing exact allowlist (local dev, prod)
+  try {
+    // Any Vercel deployment/preview: <project>-<branch>-<hash>.vercel.app
+    const hostname = new URL(origin).hostname;
+    return hostname.endsWith(".vercel.app");
+  } catch {
+    return false; // malformed origin never allowed
+  }
+}
+
 app.use(
   cors({
     origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes(origin)) {
+      if (isAllowedOrigin(origin)) {
         return callback(null, true);
       }
 
