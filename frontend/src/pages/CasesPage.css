@@ -404,6 +404,14 @@
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
 }
 
+.modal-content #title {
+  color: #0f172a;
+}
+
+.modal-content #title::placeholder {
+  color: #475569;
+}
+
 .form-input.has-error {
   border-color: #dc2626;
 }
