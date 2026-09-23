@@ -5,6 +5,9 @@ const {
   listCases,
   createNewCase,
   getCaseById,
+  getCaseIntelligence,
+  getCaseTimeline,
+  getCaseSummary,
   updateCaseById,
   updateCaseStatusById,
   submitCaseForReview,
@@ -98,6 +101,33 @@ router.get(
   caseIdParamValidator,
   validateRequest,
   getAssignments
+);
+
+// GET /api/cases/:id/intelligence — consolidated case intelligence dashboard
+router.get(
+  "/:id/intelligence",
+  authorize("cases:read"),
+  caseIdParamValidator,
+  validateRequest,
+  getCaseIntelligence
+);
+
+// GET /api/cases/:id/timeline — chronological investigation timeline
+router.get(
+  "/:id/timeline",
+  authorize("cases:read"),
+  caseIdParamValidator,
+  validateRequest,
+  getCaseTimeline
+);
+
+// POST /api/cases/:id/summary — generate an on-demand AI case summary
+router.post(
+  "/:id/summary",
+  authorize("cases:read"),
+  caseIdParamValidator,
+  validateRequest,
+  getCaseSummary
 );
 
 // POST /api/cases/:id/assignments — assign a user to a case

@@ -51,7 +51,11 @@ INSERT INTO permissions (name, description) VALUES
     ('dashboard:read', 'View dashboard statistics'),
 
     -- AI Assistant
-    ('ai:access', 'Access AI assistant features')
+    ('ai:access', 'Access AI assistant features'),
+
+    -- Notifications (notification center — read is always ownership-scoped
+    -- by the authenticated user; the permission gates access for every role)
+    ('notifications:read', 'View and manage your own notifications')
 ON DUPLICATE KEY UPDATE description = VALUES(description);
 
 -- =============================================================
@@ -76,7 +80,8 @@ WHERE r.name = 'OFFICER'
       'documents:read', 'documents:write', 'documents:download',
       'versions:create', 'versions:read',
       'dashboard:read',
-      'ai:access'
+      'ai:access',
+      'notifications:read'
   );
 
 -- REVIEWER — read-heavy, review/approve workflow
@@ -90,7 +95,8 @@ WHERE r.name = 'REVIEWER'
       'documents:read', 'documents:download',
       'versions:read',
       'dashboard:read',
-      'ai:access'
+      'ai:access',
+      'notifications:read'
   );
 
 -- USER — minimal read access
@@ -102,5 +108,6 @@ WHERE r.name = 'USER'
       'cases:read',
       'documents:read',
       'versions:read',
-      'dashboard:read'
+      'dashboard:read',
+      'notifications:read'
   );

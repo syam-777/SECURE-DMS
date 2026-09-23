@@ -357,6 +357,31 @@ const documentSummarizeValidators = [
     .withMessage("version must be a positive integer"),
 ];
 
+// POST /api/documents/:id/classify — the version is optional via the
+// request body and defaults to the document's current_version server-side.
+const documentClassifyValidators = [
+  param("id")
+    .isInt({ min: 1 })
+    .withMessage("Document ID must be a positive integer"),
+  body("versionNumber")
+    .optional({ values: "null" })
+    .isInt({ min: 1 })
+    .withMessage("versionNumber must be a positive integer"),
+];
+
+// POST /api/documents/:id/entities — the version is optional via the
+// request body and defaults to the document's current_version server-side.
+// The server always stores the result against the version it resolves.
+const documentEntitiesValidators = [
+  param("id")
+    .isInt({ min: 1 })
+    .withMessage("Document ID must be a positive integer"),
+  body("versionNumber")
+    .optional({ values: "null" })
+    .isInt({ min: 1 })
+    .withMessage("versionNumber must be a positive integer"),
+];
+
 const documentListValidators = [
   ...paginationValidators,
   query("status")
@@ -556,6 +581,28 @@ const auditLogsListValidators = [
     .withMessage("order must be 'asc' or 'desc'"),
 ];
 
+// ─── Notification center validators ──────────────────────────
+const notificationListValidators = [
+  query("page")
+    .optional()
+    .isInt({ min: 1 })
+    .withMessage("page must be a positive integer"),
+  query("limit")
+    .optional()
+    .isInt({ min: 1, max: 100 })
+    .withMessage("limit must be between 1 and 100"),
+  query("unreadOnly")
+    .optional()
+    .isIn(["true", "false", "1", "0"])
+    .withMessage("unreadOnly must be 'true' or 'false'"),
+];
+
+const notificationIdParamValidator = [
+  param("id")
+    .isInt({ min: 1 })
+    .withMessage("Notification ID must be a positive integer"),
+];
+
 // ─── Phase 11 officer verification validators ──────────────────
 const SUBMIT_VERIFICATION_MAX_ID_NUMBER = 255;
 
@@ -661,6 +708,8 @@ module.exports = {
   documentIdParamValidator,
   documentVersionParamValidator,
   documentSummarizeValidators,
+  documentClassifyValidators,
+  documentEntitiesValidators,
   documentListValidators,
   uploadDocumentValidators,
   caseSearchValidators,
@@ -672,4 +721,6 @@ module.exports = {
   approveVerificationValidators,
   rejectVerificationValidators,
   verificationListValidators,
+  notificationListValidators,
+  notificationIdParamValidator,
 };

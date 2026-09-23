@@ -42,12 +42,22 @@ const activityLabels = {
   CASE_REASSIGNED: "Officer reassigned",
   CASE_UNASSIGNED: "Officer unassigned",
   CASE_DELETED: "Case deleted",
+  CASE_REVIEW_APPROVED: "Case review approved",
+  CASE_REVIEW_REJECTED: "Case review rejected",
+  CASE_REVIEW_RETURNED: "Case returned for revision",
   DOCUMENT_CREATED: "Document uploaded",
   DOCUMENT_UPLOADED: "Document uploaded",
+  DOCUMENT_UPDATED: "Document updated",
   DOCUMENT_DOWNLOADED: "Document downloaded",
   DOCUMENT_DELETED: "Document deleted",
   DOCUMENT_SUMMARIZED: "Document summarized",
+  DOCUMENT_CHAIN_VIEWED: "Chain of custody viewed",
+  DOCUMENT_REVIEW_APPROVED: "Document review approved",
+  DOCUMENT_REVIEW_REJECTED: "Document review rejected",
+  DOCUMENT_REVIEW_RETURNED: "Document returned for revision",
   VERSION_CREATED: "Version created",
+  VERSION_DOWNLOADED: "Version downloaded",
+  VERSION_INTEGRITY_VERIFIED: "Version integrity checked",
 };
 
 function formatDate(value) {
@@ -99,7 +109,19 @@ function CaseDetailsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const [activeTab, setActiveTab] = useState("documents");
+  const [intelligence, setIntelligence] = useState(null);
+  const [intelligenceLoading, setIntelligenceLoading] = useState(false);
+  const [intelligenceError, setIntelligenceError] = useState("");
+
+  const [timeline, setTimeline] = useState(null);
+  const [timelineLoading, setTimelineLoading] = useState(false);
+  const [timelineError, setTimelineError] = useState("");
+
+  const [caseSummary, setCaseSummary] = useState(null);
+  const [caseSummaryLoading, setCaseSummaryLoading] = useState(false);
+  const [caseSummaryError, setCaseSummaryError] = useState("");
+
+  const [activeTab, setActiveTab] = useState("overview");
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editForm, setEditForm] = useState({
@@ -170,6 +192,44 @@ function CaseDetailsPage() {
     }
   }, [caseId]);
 
+  const loadIntelligence = useCallback(async () => {
+    if (intelligence) {
+      return;
+    }
+    setIntelligenceLoading(true);
+    setIntelligenceError("");
+    try {
+      const data = await apiFetch(`/cases/${caseId}/intelligence`);
+      if (!data.success) {
+        throw new Error(data.message || "Failed to load case intelligence");
+      }
+      setIntelligence(data);
+    } catch (err) {
+      setIntelligenceError(err.message || "Failed to load case intelligence");
+    } finally {
+      setIntelligenceLoading(false);
+    }
+  }, [caseId, intelligence]);
+
+  const loadTimeline = useCallback(async () => {
+    if (timeline) {
+      return;
+    }
+    setTimelineLoading(true);
+    setTimelineError("");
+    try {
+      const data = await apiFetch(`/cases/${caseId}/timeline`);
+      if (!data.success) {
+        throw new Error(data.message || "Failed to load investigation timeline");
+      }
+      setTimeline(data);
+    } catch (err) {
+      setTimelineError(err.message || "Failed to load investigation timeline");
+    } finally {
+      setTimelineLoading(false);
+    }
+  }, [caseId, timeline]);
+
   useEffect(() => {
     loadCase();
   }, [loadCase]);
@@ -180,6 +240,38 @@ function CaseDetailsPage() {
       loadActivity();
     }
   }, [caseData, loadDocuments, loadActivity]);
+
+  const handleOpenIntelligenceTab = () => {
+    setActiveTab("intelligence");
+    loadIntelligence();
+  };
+
+  const handleOpenTimelineTab = () => {
+    setActiveTab("timeline");
+    loadTimeline();
+  };
+
+  const handleGenerateSummary = useCallback(async () => {
+    if (caseSummaryLoading) {
+      return;
+    }
+    setCaseSummary(null);
+    setCaseSummaryError("");
+    setCaseSummaryLoading(true);
+    try {
+      const data = await apiFetch(`/cases/${caseId}/summary`, {
+        method: "POST",
+      });
+      if (!data.success) {
+        throw new Error(data.message || "Failed to generate case summary");
+      }
+      setCaseSummary(data);
+    } catch (err) {
+      setCaseSummaryError(err.message || "Failed to generate case summary");
+    } finally {
+      setCaseSummaryLoading(false);
+    }
+  }, [caseId, caseSummaryLoading]);
 
   const currentOfficer = assignments.find(
     (a) => String(a.assignment_role).toLowerCase() === "officer"
@@ -203,6 +295,15 @@ function CaseDetailsPage() {
   const currentRole =
     typeof currentUser.role === "string" ? currentUser.role.toUpperCase() : "";
   const isAdmin = currentRole === "ADMIN";
+
+  const overviewVersionCount = documents.reduce(
+    (sum, doc) => sum + Number(doc.current_version || 0),
+    0
+  );
+
+  const latestReviewRecord = activity.find((item) =>
+    String(item.action).startsWith("CASE_REVIEW_")
+  );
 
   const loadOfficers = useCallback(async () => {
     try {
@@ -634,6 +735,12 @@ function CaseDetailsPage() {
 
           <div className="case-tabs">
             <button
+              className={`case-tab ${activeTab === "overview" ? "active" : ""}`}
+              onClick={() => setActiveTab("overview")}
+            >
+              Workspace Overview
+            </button>
+            <button
               className={`case-tab ${activeTab === "documents" ? "active" : ""}`}
               onClick={() => setActiveTab("documents")}
             >
@@ -645,7 +752,299 @@ function CaseDetailsPage() {
             >
               Activity History
             </button>
+            <button
+              className={`case-tab ${activeTab === "chain" ? "active" : ""}`}
+              onClick={() => setActiveTab("chain")}
+            >
+              Chain of Custody
+            </button>
+            <button
+              className={`case-tab ${activeTab === "timeline" ? "active" : ""}`}
+              onClick={handleOpenTimelineTab}
+            >
+              Investigation Timeline
+            </button>
+            <button
+              className={`case-tab ${activeTab === "intelligence" ? "active" : ""}`}
+              onClick={handleOpenIntelligenceTab}
+            >
+              Case Intelligence
+            </button>
+            <Link
+              className="case-tab case-tab-link"
+              to={`/cases/${caseId}/evidence-graph`}
+            >
+              Evidence Graph
+            </Link>
           </div>
+
+          {activeTab === "overview" && (
+            <div className="workspace-overview">
+              <div className="workspace-section">
+                <h3 className="section-title">Case Snapshot</h3>
+                <div className="workspace-snapshot-grid">
+                  <div className="workspace-snapshot-field">
+                    <span className="workspace-snapshot-label">
+                      Case Number
+                    </span>
+                    <span className="workspace-snapshot-value workspace-snapshot-highlight">
+                      {caseData.case_number}
+                    </span>
+                  </div>
+                  <div className="workspace-snapshot-field">
+                    <span className="workspace-snapshot-label">Case Type</span>
+                    <span className="workspace-snapshot-value">
+                      {caseData.case_type || "—"}
+                    </span>
+                  </div>
+                  <div className="workspace-snapshot-field">
+                    <span className="workspace-snapshot-label">Status</span>
+                    <span className="workspace-snapshot-value">
+                      <span
+                        className={`status-badge status-${String(
+                          caseData.status
+                        ).toLowerCase()}`}
+                      >
+                        {titleCase(caseData.status)}
+                      </span>
+                    </span>
+                  </div>
+                  <div className="workspace-snapshot-field">
+                    <span className="workspace-snapshot-label">Priority</span>
+                    <span className="workspace-snapshot-value">
+                      {priorityValueMap[caseData.priority] ||
+                        titleCase(caseData.priority) ||
+                        "—"}
+                    </span>
+                  </div>
+                  <div className="workspace-snapshot-field">
+                    <span className="workspace-snapshot-label">Created</span>
+                    <span className="workspace-snapshot-value">
+                      {formatDate(caseData.created_at)}
+                    </span>
+                  </div>
+                  <div className="workspace-snapshot-field">
+                    <span className="workspace-snapshot-label">
+                      Last Updated
+                    </span>
+                    <span className="workspace-snapshot-value">
+                      {formatDate(caseData.updated_at)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="workspace-section">
+                <div className="workspace-section-heading">
+                  <h3 className="section-title">Investigation Stats</h3>
+                </div>
+                <div className="intelligence-cards">
+                  <div className="intelligence-card">
+                    <span className="intelligence-card-icon">&#128196;</span>
+                    <span className="intelligence-card-value">
+                      {documents.length}
+                    </span>
+                    <span className="intelligence-card-label">Documents</span>
+                  </div>
+                  <div className="intelligence-card">
+                    <span className="intelligence-card-icon">&#128213;</span>
+                    <span className="intelligence-card-value">
+                      {overviewVersionCount}
+                    </span>
+                    <span className="intelligence-card-label">Versions</span>
+                  </div>
+                  <div className="intelligence-card">
+                    <span className="intelligence-card-icon">&#128101;</span>
+                    <span className="intelligence-card-value">
+                      {assignments.length}
+                    </span>
+                    <span className="intelligence-card-label">
+                      Assignments
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="workspace-section">
+                <h3 className="section-title">
+                  Security &amp; Integrity Snapshot
+                </h3>
+                <div className="workspace-security">
+                  <div className="workspace-security-item">
+                    {latestReviewRecord ? (
+                      <span
+                        className={`workspace-security-badge action-badge action-${String(
+                          latestReviewRecord.action
+                        ).toLowerCase()}`}
+                      >
+                        {activityLabels[latestReviewRecord.action] ||
+                          titleCase(latestReviewRecord.action)}
+                      </span>
+                    ) : (
+                      <span className="workspace-security-badge workspace-security-badge-neutral">
+                        No approval recorded
+                      </span>
+                    )}
+                    <span className="workspace-security-text">
+                      {latestReviewRecord
+                        ? `Last review decision recorded ${formatDateTime(
+                            latestReviewRecord.createdAt
+                          )}.`
+                        : "No review decision has been recorded for this case yet."}
+                    </span>
+                  </div>
+                  <div className="workspace-security-item">
+                    <span className="workspace-security-text">
+                      {documents.length} document
+                      {documents.length === 1 ? "" : "s"} under tamper-evident
+                      custody tracking.
+                    </span>
+                  </div>
+                  <div className="workspace-security-note">
+                    Version-level integrity results and digital signature
+                    verification are available on the dedicated views below.
+                  </div>
+                </div>
+                <div className="workspace-quick-actions">
+                  <button
+                    className="workspace-quick-action"
+                    onClick={() => setActiveTab("chain")}
+                  >
+                    <span className="workspace-quick-action-title">
+                      Chain of Custody
+                    </span>
+                    <span className="workspace-quick-action-text">
+                      View custody trail
+                    </span>
+                  </button>
+                  <button
+                    className="workspace-quick-action"
+                    onClick={handleOpenIntelligenceTab}
+                  >
+                    <span className="workspace-quick-action-title">
+                      Case Intelligence
+                    </span>
+                    <span className="workspace-quick-action-text">
+                      Integrity &amp; review status
+                    </span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="workspace-section">
+                <div className="workspace-section-heading">
+                  <h3 className="section-title">
+                    Recent Investigation Activity
+                  </h3>
+                  {activity.length > 0 && (
+                    <button
+                      className="workspace-view-all"
+                      onClick={() => setActiveTab("activity")}
+                    >
+                      View all
+                    </button>
+                  )}
+                </div>
+                {activity.length === 0 ? (
+                  <div className="cases-message">
+                    No recorded activity for this case.
+                  </div>
+                ) : (
+                  <div className="workspace-activity-preview">
+                    {activity.slice(0, 5).map((item) => {
+                      const label =
+                        activityLabels[item.action] || titleCase(item.action);
+                      const cssClass = String(item.action).toLowerCase();
+                      return (
+                        <div className="activity-entry" key={item.id}>
+                          <div className="activity-icon">
+                            <span>&#128196;</span>
+                          </div>
+                          <div className="activity-content">
+                            <div className="activity-header">
+                              <span
+                                className={`action-badge action-${cssClass}`}
+                              >
+                                {label}
+                              </span>
+                              <span className="activity-date">
+                                {formatDateTime(item.createdAt)}
+                              </span>
+                            </div>
+                            <span className="activity-user">
+                              by User #
+                              {item.userId != null ? item.userId : "System"}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div className="workspace-section">
+                <h3 className="section-title">Workspace Quick Actions</h3>
+                <div className="workspace-quick-actions">
+                  <button
+                    className="workspace-quick-action"
+                    onClick={() => setActiveTab("documents")}
+                  >
+                    <span className="workspace-quick-action-title">
+                      Documents
+                    </span>
+                    <span className="workspace-quick-action-text">
+                      Browse, download &amp; upload evidence
+                    </span>
+                  </button>
+                  <button
+                    className="workspace-quick-action"
+                    onClick={handleOpenIntelligenceTab}
+                  >
+                    <span className="workspace-quick-action-title">
+                      Case Intelligence
+                    </span>
+                    <span className="workspace-quick-action-text">
+                      AI summary, integrity &amp; reviews
+                    </span>
+                  </button>
+                  <button
+                    className="workspace-quick-action"
+                    onClick={handleOpenTimelineTab}
+                  >
+                    <span className="workspace-quick-action-title">
+                      Investigation Timeline
+                    </span>
+                    <span className="workspace-quick-action-text">
+                      Chronological case history
+                    </span>
+                  </button>
+                  <Link
+                    className="workspace-quick-action workspace-quick-action-link"
+                    to={`/cases/${caseId}/evidence-graph`}
+                  >
+                    <span className="workspace-quick-action-title">
+                      Evidence Graph
+                    </span>
+                    <span className="workspace-quick-action-text">
+                      Entity relationship view
+                    </span>
+                  </Link>
+                  <button
+                    className="workspace-quick-action"
+                    onClick={() => setActiveTab("chain")}
+                  >
+                    <span className="workspace-quick-action-title">
+                      Chain of Custody
+                    </span>
+                    <span className="workspace-quick-action-text">
+                      Tamper-evident custody trails
+                    </span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {activeTab === "documents" && (
             <div className="table-section">
@@ -750,6 +1149,510 @@ function CaseDetailsPage() {
                     );
                   })}
                 </div>
+              )}
+            </div>
+          )}
+
+          {activeTab === "chain" && (
+            <div className="table-section">
+              <p className="description-text">
+                Each document attached to this case has its own tamper-evident
+                custody trail (uploads, versions, reviews, and audit events).
+                Open a document below to view its Chain of Custody.
+              </p>
+              {documents.length === 0 ? (
+                <div className="cases-message">
+                  No documents are associated with this case.
+                </div>
+              ) : (
+                <table className="case-documents-table">
+                  <thead>
+                    <tr>
+                      <th>Document ID</th>
+                      <th>Document Name</th>
+                      <th>Document Type</th>
+                      <th>Uploaded By</th>
+                      <th>Uploaded Date</th>
+                      <th>Version</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {documents.map((doc) => (
+                      <tr key={doc.id}>
+                        <td className="doc-id">DOC-{doc.id}</td>
+                        <td>{doc.title}</td>
+                        <td>{doc.document_type || "-"}</td>
+                        <td>
+                          {doc.uploader_name ||
+                            doc.uploader_username ||
+                            doc.uploaded_by ||
+                            "-"}
+                        </td>
+                        <td>{formatDate(doc.created_at)}</td>
+                        <td>{doc.current_version}</td>
+                        <td>
+                          <div className="action-buttons">
+                            <Link
+                              className="view-button"
+                              to={`/document-details/${doc.id}`}
+                            >
+                              View Chain of Custody
+                            </Link>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          )}
+
+          {activeTab === "timeline" && (
+            <div className="timeline-section">
+              {timelineError && (
+                <div className="cases-error">{timelineError}</div>
+              )}
+
+              {timelineLoading && !timeline ? (
+                <div className="cases-message">
+                  Loading investigation timeline...
+                </div>
+              ) : !timeline || timeline.events.length === 0 ? (
+                <div className="cases-message">
+                  No timeline events recorded for this case.
+                </div>
+              ) : (
+                <div className="timeline-list">
+                  {timeline.events.map((event) => {
+                    const isDocument = event.scope === "document";
+                    const isIntegrity =
+                      event.type === "VERSION_INTEGRITY_VERIFIED";
+                    const isReview =
+                      event.type === "CASE_REVIEW_APPROVED" ||
+                      event.type === "CASE_REVIEW_REJECTED" ||
+                      event.type === "CASE_REVIEW_RETURNED";
+                    const sig = event.metadata && event.metadata.signature;
+                    return (
+                      <div
+                        className={`timeline-entry ${
+                          isReview ? "timeline-entry-review" : ""
+                        }`}
+                        key={event.id != null ? event.id : `${event.type}-${event.timestamp}`}
+                      >
+                        <div className="timeline-rail">
+                          <span
+                            className={`timeline-dot ${
+                              isIntegrity
+                                ? event.metadata.integrityValid
+                                  ? "timeline-dot-verified"
+                                  : "timeline-dot-failed"
+                                : isDocument
+                                ? "timeline-dot-document"
+                                : "timeline-dot-case"
+                            }`}
+                          />
+                        </div>
+                        <div className="timeline-content">
+                          <div className="timeline-header">
+                            <span
+                              className={`action-badge action-${String(
+                                event.type
+                              ).toLowerCase()}`}
+                            >
+                              {event.title}
+                            </span>
+                            <span className="timeline-date">
+                              {formatDateTime(event.timestamp)}
+                            </span>
+                          </div>
+
+                          <p className="timeline-detail">
+                            {isDocument && event.resource
+                              ? `On ${event.resource.documentTitle ||
+                                  `document #${event.resource.documentId}`}.`
+                              : `On case ${caseData.case_number}.`}
+                            {event.resource && event.resource.versionNumber != null
+                              ? ` Version ${
+                                  event.resource.versionNumber
+                                } ${event.description || ""}`.trim()
+                              : ""}
+                          </p>
+
+                          {event.metadata && event.metadata.previousStatus && (
+                            <p className="timeline-meta">
+                              {event.metadata.previousStatus} &rarr;{" "}
+                              {event.metadata.newStatus}
+                            </p>
+                          )}
+
+                          {event.metadata && event.metadata.reviewNote && (
+                            <p className="timeline-review-note">
+                              &ldquo;{event.metadata.reviewNote}&rdquo;
+                            </p>
+                          )}
+
+                          {sig && sig.exists && (
+                            <div
+                              className={`timeline-signature ${
+                                sig.valid
+                                  ? "timeline-signature-valid"
+                                  : "timeline-signature-invalid"
+                              }`}
+                            >
+                              <span className="timeline-signature-icon">
+                                {sig.valid ? "✓" : "✕"}
+                              </span>
+                              <span>
+                                {sig.valid
+                                  ? "Digitally signed and verified"
+                                  : "Digital signature verification failed"}
+                                {sig.algorithm ? ` (${sig.algorithm})` : ""}
+                              </span>
+                            </div>
+                          )}
+
+                          <span className="timeline-user">
+                            by {event.actor || "System"}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeTab === "intelligence" && (
+            <div className="intelligence-section">
+              <div className="intelligence-panel ai-summary-panel">
+                <div className="ai-summary-header">
+                  <div>
+                    <h3 className="section-title">AI Case Summary</h3>
+                    <p className="ai-summary-subtitle">
+                      Generate an AI-powered summary from the documents in this
+                      case.
+                    </p>
+                  </div>
+                  <button
+                    className="ai-summary-generate"
+                    onClick={handleGenerateSummary}
+                    disabled={caseSummaryLoading}
+                  >
+                    {caseSummaryLoading
+                      ? "Generating..."
+                      : "Generate Summary"}
+                  </button>
+                </div>
+
+                {caseSummaryError && (
+                  <div className="cases-error">{caseSummaryError}</div>
+                )}
+
+                {caseSummaryLoading && (
+                  <div className="cases-message ai-summary-loading">
+                    Generating summary...
+                  </div>
+                )}
+
+                {caseSummary && !caseSummaryLoading && (
+                  <div className="ai-summary-body">
+                    <p className="ai-summary-text">{caseSummary.summary}</p>
+
+                    {caseSummary.sources && caseSummary.sources.length > 0 && (
+                      <>
+                        <h4 className="ai-summary-sources-heading">
+                          Sources
+                        </h4>
+                        <div className="ai-summary-sources">
+                          {caseSummary.sources.map((source) => (
+                            <Link
+                              className="ai-summary-source"
+                              key={`${source.documentId}-${source.versionNumber}`}
+                              to={`/document-details/${source.documentId}`}
+                            >
+                              {source.title} — Version {source.versionNumber}
+                            </Link>
+                          ))}
+                        </div>
+                      </>
+                    )}
+
+                    {caseSummary.truncated && (
+                      <p className="ai-summary-truncated">
+                        Summary generated from a limited document context.
+                      </p>
+                    )}
+
+                    <p className="ai-summary-meta">
+                      Generated: {formatDateTime(caseSummary.generatedAt)} ·
+                      Documents used: {caseSummary.documentsUsed}
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {intelligenceError && (
+                <div className="cases-error">{intelligenceError}</div>
+              )}
+
+              {intelligenceLoading && !intelligence ? (
+                <div className="cases-message">Loading case intelligence...</div>
+              ) : !intelligence ? (
+                <div className="cases-message">
+                  No intelligence data available for this case.
+                </div>
+              ) : (
+                <>
+                  <div className="intelligence-cards">
+                    <div className="intelligence-card">
+                      <span className="intelligence-card-icon">&#128196;</span>
+                      <span className="intelligence-card-value">
+                        {intelligence.documents.length}
+                      </span>
+                      <span className="intelligence-card-label">
+                        Documents
+                      </span>
+                    </div>
+                    <div className="intelligence-card">
+                      <span className="intelligence-card-icon">&#129511;</span>
+                      <span className="intelligence-card-value">
+                        {intelligence.integrity.versions}
+                      </span>
+                      <span className="intelligence-card-label">
+                        Versions
+                      </span>
+                    </div>
+                    <div className="intelligence-card">
+                      <span className="intelligence-card-icon">&#128101;</span>
+                      <span className="intelligence-card-value">
+                        {intelligence.assignments.length}
+                      </span>
+                      <span className="intelligence-card-label">
+                        Assigned Officers
+                      </span>
+                    </div>
+                    <div className="intelligence-card">
+                      <span className="intelligence-card-icon">&#11088;</span>
+                      <span className="intelligence-card-value">
+                        {intelligence.review.totalReviews}
+                      </span>
+                      <span className="intelligence-card-label">
+                        Case Reviews
+                      </span>
+                    </div>
+                    <div className="intelligence-card intelligence-card-verified">
+                      <span className="intelligence-card-icon">&#9989;</span>
+                      <span className="intelligence-card-value">
+                        {intelligence.integrity.verified}
+                      </span>
+                      <span className="intelligence-card-label">
+                        Versions Verified
+                      </span>
+                    </div>
+                    <div className="intelligence-card intelligence-card-failed">
+                      <span className="intelligence-card-icon">&#9888;&#65039;</span>
+                      <span className="intelligence-card-value">
+                        {intelligence.integrity.failed}
+                      </span>
+                      <span className="intelligence-card-label">
+                        Integrity Failures
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="intelligence-panel">
+                    <h3 className="section-title">Documents &amp; Integrity</h3>
+                    {intelligence.documents.length === 0 ? (
+                      <div className="cases-message">
+                        No documents are associated with this case.
+                      </div>
+                    ) : (
+                      <div className="table-section intelligence-table-wrap">
+                        <table className="case-documents-table">
+                          <thead>
+                            <tr>
+                              <th>Document ID</th>
+                              <th>Document Name</th>
+                              <th>Type</th>
+                              <th>Uploaded By</th>
+                              <th>Uploaded Date</th>
+                              <th>Current Version</th>
+                              <th>Version Count</th>
+                              <th>Status</th>
+                              <th>Integrity</th>
+                              <th>Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {intelligence.documents.map((item) => (
+                              <tr key={item.document.id}>
+                                <td className="doc-id">
+                                  DOC-{item.document.id}
+                                </td>
+                                <td>{item.document.title}</td>
+                                <td>{item.document.documentType || "-"}</td>
+                                <td>
+                                  {item.document.uploaderName ||
+                                    item.document.uploaderUsername ||
+                                    "—"}
+                                </td>
+                                <td>{formatDate(item.document.createdAt)}</td>
+                                <td>{item.document.currentVersion}</td>
+                                <td>{item.versions.length}</td>
+                                <td>
+                                  <span
+                                    className={`integrity-badge integrity-${String(
+                                      item.document.status
+                                    ).toLowerCase()}`}
+                                  >
+                                    {titleCase(item.document.status)}
+                                  </span>
+                                </td>
+                                <td>
+                                  <span className="integrity-summary">
+                                    <span className="integrity-summary-verified">
+                                      {item.integrity.verified} OK
+                                    </span>
+                                    <span className="integrity-summary-failed">
+                                      {item.integrity.failed} FAIL
+                                    </span>
+                                    <span className="integrity-summary-pending">
+                                      {item.integrity.notVerified} NOT CHECKED
+                                    </span>
+                                  </span>
+                                </td>
+                                <td>
+                                  <div className="action-buttons">
+                                    <Link
+                                      className="view-button"
+                                      to={`/document-details/${item.document.id}`}
+                                    >
+                                      View
+                                    </Link>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="intelligence-panel">
+                    <h3 className="section-title">Review Status</h3>
+                    <div className="review-status-block">
+                      <span
+                        className={`status-badge status-${String(
+                          intelligence.review.status
+                        ).toLowerCase()}`}
+                      >
+                        {titleCase(intelligence.review.status)}
+                      </span>
+                      <span className="review-status-count">
+                        {intelligence.review.totalReviews} review decision
+                        {intelligence.review.totalReviews === 1 ? "" : "s"}{" "}
+                        recorded
+                      </span>
+                    </div>
+                    {intelligence.review.history.length === 0 ? (
+                      <div className="cases-message">
+                        No review decisions have been recorded for this case.
+                      </div>
+                    ) : (
+                      <div className="review-history-list">
+                        {intelligence.review.history.map((review, index) => (
+                          <div
+                            className="review-history-item"
+                            key={`${review.createdAt}-${index}`}
+                          >
+                            <div className="review-history-main">
+                              <span
+                                className={`action-badge review-action-${review.action}`}
+                              >
+                                {titleCase(review.action)}
+                              </span>
+                              <span className="review-history-note">
+                                {review.reviewNote || "No note provided."}
+                              </span>
+                            </div>
+                            <div className="review-history-meta">
+                              <span className="activity-user">
+                                {review.reviewerName ||
+                                  review.reviewerUsername ||
+                                  `User #${review.reviewerId}`}
+                              </span>
+                              <span className="activity-date">
+                                {formatDateTime(review.createdAt)}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="intelligence-panel">
+                    <h3 className="section-title">Case Activity Timeline</h3>
+                    {intelligence.activity.length === 0 ? (
+                      <div className="cases-message">
+                        No recorded activity for this case.
+                      </div>
+                    ) : (
+                      <div className="activity-list">
+                        {intelligence.activity.map((item) => {
+                          const label =
+                            activityLabels[item.action] || titleCase(item.action);
+                          const cssClass = String(item.action).toLowerCase();
+                          const subject =
+                            item.scope === "document"
+                              ? `document ${item.documentTitle ||
+                                  `#${item.documentId}`}`
+                              : `case ${caseData.case_number}`;
+                          return (
+                            <div
+                              className="activity-entry"
+                              key={`${item.id}`}
+                            >
+                              <div className="activity-icon">
+                                <span>
+                                  {item.scope === "document" ? "&#128196;" : "&#128193;"}
+                                </span>
+                              </div>
+                              <div className="activity-content">
+                                <div className="activity-header">
+                                  <span
+                                    className={`action-badge action-${cssClass}`}
+                                  >
+                                    {label}
+                                  </span>
+                                  <span className="activity-date">
+                                    {formatDateTime(item.createdAt)}
+                                  </span>
+                                </div>
+                                <p className="activity-details">
+                                  {item.details && item.details.caseNumber
+                                    ? `${label} for ${subject} (${item.details.caseNumber}).`
+                                    : `${label} for ${subject}.`}
+                                </p>
+                                <span className="activity-user">
+                                  {item.userName ||
+                                    item.userUsername ||
+                                    (item.userId != null
+                                      ? `User #${item.userId}`
+                                      : "System")}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </>
               )}
             </div>
           )}

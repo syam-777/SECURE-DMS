@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from "react";
+﻿import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { apiFetch } from "../api/api";
 import AppLayout from "../components/AppLayout";
@@ -82,6 +82,16 @@ function DocumentsPage() {
   const [formData, setFormData] = useState(initialFormData);
   const [formErrors, setFormErrors] = useState({});
   const [uploading, setUploading] = useState(false);
+
+  const [toasts, setToasts] = useState([]);
+
+  const showToast = useCallback((message, type = "success") => {
+    const id = Date.now();
+    setToasts((prev) => [...prev, { id, message, type }]);
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, 4000);
+  }, []);
 
   const loadCases = async () => {
     try {
@@ -281,7 +291,7 @@ function DocumentsPage() {
 
       await loadDocuments();
 
-      alert("Document uploaded successfully.");
+      showToast("Document uploaded successfully.");
     } catch (error) {
       console.error("Document upload failed:", error);
 
@@ -377,7 +387,13 @@ function DocumentsPage() {
             {loading ? (
               <div className="no-results">Loading documents...</div>
             ) : errorMessage ? (
-              <div className="no-results">{errorMessage}</div>
+              <div className="error-message">
+                <strong>Unable to load documents</strong>
+                <p>{errorMessage}</p>
+                <button onClick={loadDocuments}>
+                  Try Again
+                </button>
+              </div>
             ) : (
               <>
                 <table className="documents-table">
@@ -697,6 +713,16 @@ function DocumentsPage() {
             </div>
           )}
         </AppLayout>
+
+        {toasts.length > 0 && (
+          <div className="toast-container">
+            {toasts.map((toast) => (
+              <div key={toast.id} className={`toast toast-${toast.type}`}>
+                {toast.message}
+              </div>
+            ))}
+          </div>
+        )}
     </div>
   );
 }

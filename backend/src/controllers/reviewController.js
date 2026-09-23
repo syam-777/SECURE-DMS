@@ -8,6 +8,24 @@ const {
   findDocumentForReview,
   findReviewHistory,
 } = require("../models/reviewModel");
+const {
+  insertApprovalSignature,
+  findApprovalSignatureByCaseId,
+} = require("../models/approvalSignatureModel");
+const {
+  canonicalizeApprovalPayload,
+  signApprovalPayload,
+  verifyApprovalSignature,
+  getApprovalSigningMetadata,
+} = require("../services/approvalSignatureService");
+const {
+  notifyCaseApproved,
+  notifyCaseRejected,
+  notifyCaseReturned,
+  notifyDocumentReviewApproved,
+  notifyDocumentReviewRejected,
+  notifyDocumentReviewReturned,
+} = require("../services/notificationService");
 
 function httpError(statusCode, message) {
   const err = new Error(message);
@@ -97,9 +115,56 @@ async function approveCase(req, res, next) {
       [caseId]
     );
 
-    await connection.query(
+    const [reviewResult] = await connection.query(
       "INSERT INTO case_reviews (case_id, reviewer_id, action, review_note) VALUES (?, ?, 'approved', ?)",
       [caseId, req.user.id, reviewNote]
+    );
+    const reviewId = reviewResult.insertId;
+
+    // Snapshot the exact current document versions/checksums of the case
+    // using the SAME transaction connection so the signed statement matches
+    // the state being approved. Deleted documents are excluded; documents
+    // with no current version are skipped.
+    const [artifactRows] = await connection.query(
+      "SELECT d.id AS document_id, d.title AS document_title, " +
+        "dv.version_number, dv.checksum " +
+        "FROM documents d " +
+        "JOIN document_versions dv ON dv.document_id = d.id " +
+        "AND dv.version_number = d.current_version " +
+        "WHERE d.case_id = ? AND d.status <> 'deleted'",
+      [caseId]
+    );
+    const artifacts = artifactRows.map((row) => ({
+      documentId: row.document_id,
+      documentTitle: row.document_title,
+      versionNumber: row.version_number,
+      checksum: row.checksum,
+    }));
+
+    const payload = canonicalizeApprovalPayload({
+      reviewId,
+      caseId: Number(caseId),
+      caseNumber: caseRow.case_number,
+      reviewerId: req.user.id,
+      reviewerUsername: req.user.username,
+      reviewNote,
+      approvedAt: new Date(),
+      artifacts,
+    });
+
+    const signature = signApprovalPayload(payload);
+    const signingMetadata = getApprovalSigningMetadata();
+
+    await insertApprovalSignature(
+      {
+        reviewId,
+        caseId: Number(caseId),
+        payload,
+        signature,
+        algorithm: signingMetadata.algorithm,
+        keyId: signingMetadata.keyId,
+      },
+      connection
     );
 
     await logAuditEvent(
@@ -122,6 +187,15 @@ async function approveCase(req, res, next) {
 
     await connection.commit();
 
+    // Notify the case's assigned officer (best-effort, after commit).
+    if (caseRow.assigned_to != null) {
+      await notifyCaseApproved({
+        userId: caseRow.assigned_to,
+        caseId: Number(caseId),
+        caseNumber: caseRow.case_number,
+      });
+    }
+
     const updated = await findCaseForReview(caseId);
     return res.json({
       success: true,
@@ -133,6 +207,39 @@ async function approveCase(req, res, next) {
     return next(err);
   } finally {
     connection.release();
+  }
+}
+
+// ─── GET /api/reviews/cases/:id/signature ──────────────────
+// Read-only verification of a case approval's digital signature.
+// Returns safe metadata only (never the keys, payload, or signature).
+async function getCaseApprovalSignature(req, res, next) {
+  try {
+    const caseId = req.params.id;
+    const signatureRow = await findApprovalSignatureByCaseId(caseId);
+    if (!signatureRow) {
+      throw httpError(404, "No approval signature found for this case");
+    }
+
+    const signingMetadata = getApprovalSigningMetadata();
+    const valid = verifyApprovalSignature(
+      signatureRow.payload,
+      signatureRow.signature
+    );
+
+    return res.json({
+      success: true,
+      valid,
+      algorithm: signatureRow.algorithm,
+      keyId: signatureRow.key_id,
+      signedAt: signatureRow.signed_at
+        ? new Date(signatureRow.signed_at).toISOString()
+        : null,
+      reviewId: Number(signatureRow.review_id),
+      caseId: Number(signatureRow.case_id),
+    });
+  } catch (err) {
+    return next(err);
   }
 }
 
@@ -185,6 +292,15 @@ async function rejectCase(req, res, next) {
     );
 
     await connection.commit();
+
+    // Notify the case's assigned officer (best-effort, after commit).
+    if (caseRow.assigned_to != null) {
+      await notifyCaseRejected({
+        userId: caseRow.assigned_to,
+        caseId: Number(caseId),
+        caseNumber: caseRow.case_number,
+      });
+    }
 
     const updated = await findCaseForReview(caseId);
     return res.json({
@@ -250,6 +366,15 @@ async function returnCase(req, res, next) {
 
     await connection.commit();
 
+    // Notify the case's assigned officer (best-effort, after commit).
+    if (caseRow.assigned_to != null) {
+      await notifyCaseReturned({
+        userId: caseRow.assigned_to,
+        caseId: Number(caseId),
+        caseNumber: caseRow.case_number,
+      });
+    }
+
     const updated = await findCaseForReview(caseId);
     return res.json({
       success: true,
@@ -313,6 +438,17 @@ async function approveDocument(req, res, next) {
     );
 
     await connection.commit();
+
+    // Notify the document's uploader, unless the reviewer IS the uploader
+    // (best-effort, after commit).
+    if (docRow.uploaded_by != null && Number(docRow.uploaded_by) !== Number(req.user.id)) {
+      await notifyDocumentReviewApproved({
+        userId: docRow.uploaded_by,
+        caseId: docRow.case_id != null ? Number(docRow.case_id) : null,
+        documentId: Number(documentId),
+        documentTitle: docRow.title,
+      });
+    }
 
     const updated = await findDocumentForReview(documentId);
     return res.json({
@@ -379,6 +515,17 @@ async function rejectDocument(req, res, next) {
 
     await connection.commit();
 
+    // Notify the document's uploader, unless the reviewer IS the uploader
+    // (best-effort, after commit).
+    if (docRow.uploaded_by != null && Number(docRow.uploaded_by) !== Number(req.user.id)) {
+      await notifyDocumentReviewRejected({
+        userId: docRow.uploaded_by,
+        caseId: docRow.case_id != null ? Number(docRow.case_id) : null,
+        documentId: Number(documentId),
+        documentTitle: docRow.title,
+      });
+    }
+
     const updated = await findDocumentForReview(documentId);
     return res.json({
       success: true,
@@ -444,6 +591,17 @@ async function returnDocument(req, res, next) {
 
     await connection.commit();
 
+    // Notify the document's uploader, unless the reviewer IS the uploader
+    // (best-effort, after commit).
+    if (docRow.uploaded_by != null && Number(docRow.uploaded_by) !== Number(req.user.id)) {
+      await notifyDocumentReviewReturned({
+        userId: docRow.uploaded_by,
+        caseId: docRow.case_id != null ? Number(docRow.case_id) : null,
+        documentId: Number(documentId),
+        documentTitle: docRow.title,
+      });
+    }
+
     const updated = await findDocumentForReview(documentId);
     return res.json({
       success: true,
@@ -469,4 +627,5 @@ module.exports = {
   approveDocument,
   rejectDocument,
   returnDocument,
+  getCaseApprovalSignature,
 };

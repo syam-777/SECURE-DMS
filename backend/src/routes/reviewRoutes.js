@@ -12,6 +12,7 @@ const {
   approveDocument,
   rejectDocument,
   returnDocument,
+  getCaseApprovalSignature,
 } = require("../controllers/reviewController");
 const { authenticate, authorize } = require("../middleware/authMiddleware");
 const {
@@ -42,6 +43,15 @@ router.patch(
   caseIdParamValidator,
   validateRequest,
   approveCase
+);
+
+// GET /api/reviews/cases/:id/signature — verify a case approval signature
+router.get(
+  "/cases/:id/signature",
+  authorize("reviews:read"),
+  caseIdParamValidator,
+  validateRequest,
+  getCaseApprovalSignature
 );
 
 // PATCH /api/reviews/cases/:id/reject — reject a case

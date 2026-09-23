@@ -1,4 +1,6 @@
 const { logAuditEvent } = require("../models/auditLogModel");
+const { safeAuditDetails } = require("./auditController");
+const { buildChainOfCustody } = require("../models/chainOfCustodyModel");
 const { getUserWithRoleAndPermissions } = require("../models/userModel");
 const {
   findCaseNumberById,
@@ -7,10 +9,32 @@ const {
 } = require("../models/caseModel");
 const { readDocumentText } = require("../services/documentContentService");
 const { extractContentForFile } = require("../services/documentContentService");
-const { summarizeText } = require("../services/aiService");
+const {
+  notifyDocumentUploaded,
+  notifyDocumentVersionCreated,
+  notifyIntegrityFailure,
+} = require("../services/notificationService");
+const {
+  summarizeText,
+  classifyDocumentText,
+  buildClassificationAuditDetails,
+  extractEntitiesFromText,
+  buildEntityAuditDetails,
+  GEMINI_MODEL,
+} = require("../services/aiService");
 const {
   upsertDocumentContent,
 } = require("../models/documentContentModel");
+const {
+  findDocumentClassification,
+  upsertDocumentClassification,
+  mapClassificationToVersion,
+} = require("../models/documentClassificationModel");
+const {
+  findDocumentEntities,
+  upsertDocumentEntities,
+  mapEntitiesToVersion,
+} = require("../models/documentEntitiesModel");
 const {
   generateStorageKey,
   sha256Buffer,
@@ -35,6 +59,26 @@ function httpError(statusCode, message) {
   err.statusCode = statusCode;
   err.expose = true;
   return err;
+}
+
+/**
+ * Temporary-safe diagnostic: redact the Gemini API key (and any key-shaped
+ * string) before an error message or stack trace is written to the server log.
+ * The API key is only ever read from process.env and its value is never
+ * intentionally logged; document text/prompts are never logged anywhere.
+ */
+function redactSecrets(value) {
+  if (typeof value !== "string") {
+    return value;
+  }
+
+  let text = value;
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (apiKey) {
+    text = text.split(apiKey).join("[REDACTED:gemini-api-key]");
+  }
+
+  return text.replace(/AIza[a-zA-Z0-9_\-]{20,}/g, "[REDACTED:gemini-api-key]");
 }
 
 /**
@@ -362,6 +406,26 @@ async function uploadDocument(req, res, next) {
       req.file.mimetype
     ).catch(() => {});
 
+    // Notify the case's assigned officer (best-effort, after success),
+    // unless the uploader IS that officer. The service never throws, so
+    // a notification failure cannot break the completed upload.
+    if (resolvedCaseId != null) {
+      const caseRow = await findCaseById(resolvedCaseId);
+      const officerId =
+        caseRow && caseRow.assigned_to != null
+          ? Number(caseRow.assigned_to)
+          : null;
+      if (officerId != null && officerId !== Number(uploadedById)) {
+        await notifyDocumentUploaded({
+          userId: officerId,
+          caseId: Number(resolvedCaseId),
+          caseNumber: caseRow.case_number,
+          documentId: result.documentId,
+          documentTitle: title.trim(),
+        });
+      }
+    }
+
     return res
       .status(201)
       .json({ success: true, document, currentVersion });
@@ -533,6 +597,33 @@ async function createNewVersion(req, res, next) {
       req.file.mimetype
     ).catch(() => {});
 
+    // Notify the document owner and/or the case's assigned officer
+    // (best-effort, after success), deduplicated and always excluding the
+    // actor who created this version. The helper never throws, so a
+    // notification failure cannot break the completed version creation.
+    const recipientIds = new Set();
+    if (document.uploaded_by != null) {
+      recipientIds.add(Number(document.uploaded_by));
+    }
+    let caseRow = null;
+    if (document.case_id != null) {
+      caseRow = await findCaseById(document.case_id);
+      if (caseRow && caseRow.assigned_to != null) {
+        recipientIds.add(Number(caseRow.assigned_to));
+      }
+    }
+    recipientIds.delete(Number(req.user.id));
+    for (const recipientId of recipientIds) {
+      await notifyDocumentVersionCreated({
+        userId: recipientId,
+        caseId: document.case_id != null ? Number(document.case_id) : null,
+        caseNumber: caseRow ? caseRow.case_number : null,
+        documentId: Number(docId),
+        documentTitle: document.title,
+        versionNumber: result.versionNumber,
+      });
+    }
+
     return res.status(201).json({
       success: true,
       message: "New document version created",
@@ -556,10 +647,24 @@ async function listVersions(req, res, next) {
 
     const versions = await findVersionsByDocument(docId);
 
+    const classifiedVersions = await Promise.all(
+      versions.map(async (version) => {
+        const classification = await findDocumentClassification(
+          docId,
+          version.version_number
+        );
+        const entities = await findDocumentEntities(
+          docId,
+          version.version_number
+        );
+        return { ...version, classification, entities };
+      })
+    );
+
     return res.json({
       success: true,
       documentId: Number(docId),
-      versions,
+      versions: classifiedVersions.map((version) => safeVersion(version)),
     });
   } catch (err) {
     return next(err);
@@ -584,10 +689,19 @@ async function getVersion(req, res, next) {
       throw httpError(404, "Document version not found");
     }
 
+    const classification = await findDocumentClassification(
+      docId,
+      version.version_number
+    );
+    const entities = await findDocumentEntities(
+      docId,
+      version.version_number
+    );
+
     return res.json({
       success: true,
       documentId: Number(docId),
-      version: safeVersion(version),
+      version: safeVersion({ ...version, classification, entities }),
     });
   } catch (err) {
     return next(err);
@@ -696,6 +810,34 @@ async function verifyVersionIntegrity(req, res, next) {
       },
     });
 
+    // Integrity check FAILED → alert the document owner and the case's
+    // assigned officer (best-effort, after the audit record). The message
+    // intentionally NEVER includes either checksum. The helper never
+    // throws, so a notification failure cannot break the verification.
+    if (!integrityValid) {
+      const recipientIds = new Set();
+      if (document.uploaded_by != null) {
+        recipientIds.add(Number(document.uploaded_by));
+      }
+      let integrityCaseRow = null;
+      if (document.case_id != null) {
+        integrityCaseRow = await findCaseById(document.case_id);
+        if (integrityCaseRow && integrityCaseRow.assigned_to != null) {
+          recipientIds.add(Number(integrityCaseRow.assigned_to));
+        }
+      }
+      for (const recipientId of recipientIds) {
+        await notifyIntegrityFailure({
+          userId: recipientId,
+          caseId: document.case_id != null ? Number(document.case_id) : null,
+          caseNumber: integrityCaseRow ? integrityCaseRow.case_number : null,
+          documentId: Number(docId),
+          documentTitle: document.title,
+          versionNumber: Number(versionNumber),
+        });
+      }
+    }
+
     return res.json({
       success: true,
       documentId: Number(docId),
@@ -704,6 +846,49 @@ async function verifyVersionIntegrity(req, res, next) {
       calculatedChecksum,
       integrityValid,
     });
+  } catch (err) {
+    return next(err);
+  }
+}
+
+// ─── GET /api/documents/:id/chain-of-custody ──────────
+async function getChainOfCustody(req, res, next) {
+  try {
+    const docId = req.params.id;
+    const document = await findDocumentById(docId);
+    if (!document) {
+      throw httpError(404, "Document not found");
+    }
+
+    // Same per-document authorization used by every document endpoint:
+    // OFFICER / USER / REVIEWER / ADMIN access rules are enforced here.
+    await assertDocumentAccess(document, req.user.id);
+
+    const chain = await buildChainOfCustody(docId);
+    if (!chain) {
+      throw httpError(404, "Document not found");
+    }
+
+    // Strip any sensitive audit `details` (passwords, tokens, credentials,
+    // storage paths) before exposing them to the caller.
+    chain.auditEvents = chain.auditEvents.map((event) => ({
+      ...event,
+      details: safeAuditDetails(event.details),
+    }));
+
+    await logAuditEvent({
+      userId: req.user.id,
+      action: "DOCUMENT_CHAIN_VIEWED",
+      resourceType: "document",
+      resourceId: Number(docId),
+      ipAddress: req.ip,
+      userAgent: req.get("user-agent"),
+      details: {
+        totalVersions: chain.summary.totalVersions,
+      },
+    });
+
+    return res.json({ success: true, chain });
   } catch (err) {
     return next(err);
   }
@@ -782,6 +967,231 @@ async function summarizeDocument(req, res, next) {
   }
 }
 
+// ─── POST /api/documents/:id/classify ─────────────────────────
+// Protected (JWT + documents:read + documents:download, enforced in the
+// route). Mirrors the summarize flow: the document/version is resolved
+// entirely server-side from the database (a client-supplied version number
+// is only ever used as a lookup key), the content is never sent to Gemini
+// before authorization, and neither the document text, the prompt, the raw
+// Gemini response, B2 paths, stored filenames, nor any secret is logged or
+// returned. Classifications are stored for the exact version that was
+// classified and never overwrite documents.document_type.
+async function classifyDocument(req, res, next) {
+  try {
+    const docId = req.params.id;
+    const requestedVersion =
+      req.body && req.body.versionNumber != null
+        ? Number(req.body.versionNumber)
+        : null;
+
+    // Authorization has already succeeded (route middleware). Enforce the
+    // case/ownership access scoping, then resolve the exact version.
+    const docMeta = await findDocumentById(docId);
+    if (!docMeta) {
+      throw httpError(404, "Document not found");
+    }
+    await assertDocumentAccess(docMeta, req.user.id);
+
+    // readDocumentText defaults to the current version when no version is
+    // supplied and returns the resolved versionNumber.
+    const content = await readDocumentText(docId, requestedVersion);
+
+    const classification = await classifyDocumentText({
+      text: content.text,
+      title: content.title,
+      truncated: content.truncated,
+    });
+
+    await upsertDocumentClassification(
+      mapClassificationToVersion(
+        content.documentId,
+        content.versionNumber,
+        classification
+      )
+    );
+
+    // Audit metadata only — never document text, prompt, or raw response.
+    await logAuditEvent({
+      userId: req.user.id,
+      action: "DOCUMENT_CLASSIFIED",
+      resourceType: "document",
+      resourceId: content.documentId,
+      ipAddress: req.ip,
+      userAgent: req.get("user-agent"),
+      details: buildClassificationAuditDetails({
+        versionNumber: content.versionNumber,
+        category: classification.category,
+        confidence: classification.confidence,
+        model: classification.model,
+        truncated: content.truncated,
+      }),
+    });
+
+    return res.json({
+      success: true,
+      documentId: content.documentId,
+      versionNumber: content.versionNumber,
+      category: classification.category,
+      confidence: classification.confidence,
+      reason: classification.reason,
+      model: classification.model,
+    });
+  } catch (err) {
+    if (err.code === "GEMINI_NOT_CONFIGURED") {
+      return next(httpError(500, "AI service is not configured"));
+    }
+    if (err.code === "GEMINI_EMPTY_INPUT") {
+      return next(httpError(422, "File contains no extractable text"));
+    }
+
+    // Typed 4xx errors (400/404/415/422) from content extraction or audit
+    // failures should pass through unchanged and never hit Gemini retries.
+    if (err.statusCode && err.expose) {
+      return next(err);
+    }
+
+    // Never leak SDK internals, the API key, document content, or stack
+    // traces. Log only a safe diagnostic line for local debugging; the
+    // generic 502 response behavior is intentionally preserved.
+    const apiResponseStatus =
+      (err.response &&
+        (err.response.status || err.response.statusCode)) ||
+      (typeof err.statusNumber === "number" ? err.statusNumber : undefined);
+    const stackSnippet = err.stack
+      ? String(err.stack)
+          .split("\n")
+          .slice(0, 3)
+          .join(" | ")
+      : "";
+    console.error(
+      "[doc-classify] diagnostics -> " +
+        `name=${err.name || "n/a"} ` +
+        `message=${JSON.stringify(redactSecrets(err.message) || "n/a")} ` +
+        `statusCode=${err.statusCode ?? "n/a"} ` +
+        `status=${err.status ?? "n/a"} ` +
+        `apiResponseStatus=${apiResponseStatus ?? "n/a"} ` +
+        `code=${err.code ?? "n/a"} ` +
+        `model=${GEMINI_MODEL} ` +
+        `stack=${stackSnippet || "n/a"}`
+    );
+    console.error("Document classification failed");
+    return next(httpError(502, "AI service is temporarily unavailable"));
+  }
+}
+
+// Protected (JWT + documents:read + documents:download, enforced in the
+// route). Mirrors the classify/summarize flow: the document/version is
+// resolved entirely server-side from the database (a client-supplied
+// version number is only ever used as a lookup key), the content is never
+// sent to Gemini before authorization, and neither the document text, the
+// prompt, the raw Gemini response, B2 paths, stored filenames, nor any
+// secret is logged or returned. Extracted entities are stored for the exact
+// version that was extracted and never overwrite documents.document_type.
+async function extractEntities(req, res, next) {
+  try {
+    const docId = req.params.id;
+    const requestedVersion =
+      req.body && req.body.versionNumber != null
+        ? Number(req.body.versionNumber)
+        : null;
+
+    // Authorization has already succeeded (route middleware). Enforce the
+    // case/ownership access scoping, then resolve the exact version.
+    const docMeta = await findDocumentById(docId);
+    if (!docMeta) {
+      throw httpError(404, "Document not found");
+    }
+    await assertDocumentAccess(docMeta, req.user.id);
+
+    // readDocumentText defaults to the current version when no version is
+    // supplied and returns the resolved versionNumber.
+    const content = await readDocumentText(docId, requestedVersion);
+
+    const extraction = await extractEntitiesFromText({
+      text: content.text,
+      title: content.title,
+      truncated: content.truncated,
+    });
+
+    // IMPORTANT: store against the versionNumber returned by
+    // readDocumentText(), never a client-defined version.
+    await upsertDocumentEntities(
+      mapEntitiesToVersion(
+        content.documentId,
+        content.versionNumber,
+        extraction
+      )
+    );
+
+    // Audit metadata only — never document text, prompt, raw response, or
+    // extracted entity names/values.
+    await logAuditEvent({
+      userId: req.user.id,
+      action: "DOCUMENT_ENTITIES_EXTRACTED",
+      resourceType: "document",
+      resourceId: content.documentId,
+      ipAddress: req.ip,
+      userAgent: req.get("user-agent"),
+      details: buildEntityAuditDetails({
+        versionNumber: content.versionNumber,
+        entities: extraction.entities,
+        model: extraction.model,
+        truncated: content.truncated,
+      }),
+    });
+
+    return res.json({
+      success: true,
+      documentId: content.documentId,
+      versionNumber: content.versionNumber,
+      model: extraction.model,
+      truncated: content.truncated,
+      entities: extraction.entities,
+      note: "AI-generated information — not authoritative legal fact.",
+    });
+  } catch (err) {
+    if (err.code === "GEMINI_NOT_CONFIGURED") {
+      return next(httpError(500, "AI service is not configured"));
+    }
+    if (err.code === "GEMINI_EMPTY_INPUT") {
+      return next(httpError(422, "File contains no extractable text"));
+    }
+
+    // Typed 4xx errors (400/404/415/422) from content extraction or audit
+    // failures should pass through unchanged and never hit Gemini retries.
+    if (err.statusCode && err.expose) {
+      return next(err);
+    }
+
+    // Never leak SDK internals, the API key, document content, or stack
+    // traces. Log only a safe diagnostic line for local debugging; the
+    // generic 502 response behavior is intentionally preserved.
+    const apiResponseStatus =
+      (err.response &&
+        (err.response.status || err.response.statusCode)) ||
+      (typeof err.statusNumber === "number" ? err.statusNumber : undefined);
+    const stackSnippet = err.stack
+      ? String(err.stack)
+          .split("\n")
+          .slice(0, 3)
+          .join(" | ")
+      : "";
+    console.error(
+      "[doc-entities] diagnostics -> " +
+        `name=${err.name || "n/a"} ` +
+        `message=${JSON.stringify(redactSecrets(err.message) || "n/a")} ` +
+        `statusCode=${err.statusCode ?? "n/a"} ` +
+        `status=${err.status ?? "n/a"} ` +
+        `apiResponseStatus=${apiResponseStatus ?? "n/a"} ` +
+        `code=${err.code ?? "n/a"} ` +
+        `model=${GEMINI_MODEL} ` +
+        `stack=${stackSnippet || "n/a"}`
+    );
+    console.error("Document entity extraction failed");
+    return next(httpError(502, "AI service is temporarily unavailable"));
+  }
+}
+
 module.exports = {
   listDocuments,
   getDocumentById,
@@ -794,4 +1204,7 @@ module.exports = {
   downloadVersion,
   verifyVersionIntegrity,
   summarizeDocument,
+  classifyDocument,
+  extractEntities,
+  getChainOfCustody,
 };

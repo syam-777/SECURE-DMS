@@ -3,8 +3,21 @@ const {
   findUserByIdSafe,
   getUserWithRoleAndPermissions,
   findActiveOfficers,
+  findActiveReviewers,
 } = require("../models/userModel");
 const { logAuditEvent } = require("../models/auditLogModel");
+const { safeAuditDetails } = require("./auditController");
+const { buildCaseIntelligence } = require("../models/caseIntelligenceModel");
+const { buildCaseTimeline } = require("../models/investigationTimelineModel");
+const { buildCaseSummaryContext } = require("../models/caseSummaryModel");
+const {
+  notifyCaseAssigned,
+  notifyCaseSubmittedForReview,
+} = require("../services/notificationService");
+const {
+  generateCaseSummary,
+  parseCitations,
+} = require("../services/aiService");
 const {
   findCaseById,
   findCaseNumberById,
@@ -193,6 +206,169 @@ async function getCaseById(req, res, next) {
     return res.json({ success: true, case: caseRow, assignments });
   } catch (err) {
     return next(err);
+  }
+}
+
+// ─── GET /api/cases/:id/intelligence ─────────────────────────
+// Consolidated read-only view of a single case (documents, versions,
+// integrity summary, review history, activity timeline) for the case
+// intelligence dashboard. Same visibility rules as GET /api/cases/:id;
+// audit `details` are sanitized so private storage/path/credential
+// metadata never leaves the API.
+async function getCaseIntelligence(req, res, next) {
+  try {
+    const caseId = req.params.id;
+    const caseRow = await findCaseById(caseId);
+    if (!caseRow) {
+      throw httpError(404, "Case not found");
+    }
+
+    // Same assignment-first visibility as GET /api/cases/:id, enforced
+    // from the DB role. Defaults (ADMIN / REVIEWER) are handled by the
+    // cases:read route guard.
+    const actor = await getUserWithRoleAndPermissions(req.user.id);
+    if (actor && (actor.role === "OFFICER" || actor.role === "USER")) {
+      await assertCaseViewAccess(caseRow, actor, req.user.id);
+    }
+
+    const data = await buildCaseIntelligence(caseId);
+    if (!data) {
+      throw httpError(404, "Case not found");
+    }
+
+    const sanitized = {
+      ...data,
+      activity: data.activity.map((event) => ({
+        ...event,
+        details: safeAuditDetails(event.details),
+      })),
+    };
+
+    return res.json({ success: true, ...sanitized });
+  } catch (err) {
+    return next(err);
+  }
+}
+
+// ─── GET /api/cases/:id/timeline ────────────────────────────
+// Chronological investigation timeline for a single case, composed from
+// existing case/document/review/audit records. Newest first, safe metadata
+// only. Same visibility rules as GET /api/cases/:id and /intelligence.
+async function getCaseTimeline(req, res, next) {
+  try {
+    const caseId = req.params.id;
+    const caseRow = await findCaseById(caseId);
+    if (!caseRow) {
+      throw httpError(404, "Case not found");
+    }
+
+    const actor = await getUserWithRoleAndPermissions(req.user.id);
+    if (actor && (actor.role === "OFFICER" || actor.role === "USER")) {
+      await assertCaseViewAccess(caseRow, actor, req.user.id);
+    }
+
+    const data = await buildCaseTimeline(caseId);
+    if (!data) {
+      throw httpError(404, "Case not found");
+    }
+
+    return res.json({ success: true, ...data });
+  } catch (err) {
+    return next(err);
+  }
+}
+
+// ─── POST /api/cases/:id/summary ─────────────────────────────
+// On-demand AI case summary grounded only in the active documents of
+// this case (current versions). Same visibility rules as GET
+// /api/cases/:id and /intelligence. The summary is generated on demand
+// and is never persisted. Audit `details` are metadata only — never the
+// summary/prompt/document text.
+async function getCaseSummary(req, res, next) {
+  try {
+    const caseId = req.params.id;
+    const caseRow = await findCaseById(caseId);
+    if (!caseRow) {
+      throw httpError(404, "Case not found");
+    }
+
+    const actor = await getUserWithRoleAndPermissions(req.user.id);
+    if (actor && (actor.role === "OFFICER" || actor.role === "USER")) {
+      await assertCaseViewAccess(caseRow, actor, req.user.id);
+    }
+
+    const context = await buildCaseSummaryContext(caseId);
+    if (!context) {
+      throw httpError(404, "Case not found");
+    }
+
+    if (context.documents.length === 0) {
+      throw httpError(422, "No usable case document text is available");
+    }
+
+    const summary = await generateCaseSummary({
+      caseNumber: context.case.caseNumber,
+      caseTitle: context.case.title,
+      documents: context.documents,
+    });
+
+    // Reuse the existing citation parser against the EXACT bounded array
+    // that was sent to Gemini. Sources expose only safe metadata.
+    let sources = [];
+    try {
+      sources = parseCitations(summary, context.documents).map((citation) => ({
+        documentId: citation.documentId,
+        title: citation.title,
+        versionNumber: citation.versionNumber,
+      }));
+    } catch {
+      sources = [];
+    }
+
+    await logAuditEvent({
+      userId: req.user.id,
+      action: "AI_CASE_SUMMARY_GENERATED",
+      resourceType: "case",
+      resourceId: Number(caseId),
+      ipAddress: req.ip,
+      userAgent: req.get("user-agent"),
+      details: {
+        caseNumber: context.case.caseNumber,
+        documentsUsed: context.documents.length,
+        truncated: context.truncated,
+      },
+    });
+
+    return res.json({
+      success: true,
+      case: context.case,
+      summary,
+      sources,
+      documentsUsed: context.documents.length,
+      truncated: context.truncated,
+      generatedAt: new Date().toISOString(),
+    });
+  } catch (err) {
+    if (err.code === "GEMINI_NOT_CONFIGURED") {
+      return next(httpError(500, "AI service is not configured"));
+    }
+
+    if (err.code === "GEMINI_EMPTY_INPUT") {
+      return next(httpError(422, "No usable case document text is available"));
+    }
+
+    if (err.code === "GEMINI_NO_CASE_DOCUMENTS") {
+      return next(
+        httpError(422, "No usable documents are available for this case")
+      );
+    }
+
+    if (err.statusCode && err.expose) {
+      return next(err);
+    }
+
+    console.error("AI case summary failed");
+    return next(httpError(502, "AI service is temporarily unavailable"));
   }
 }
 
@@ -403,6 +579,19 @@ async function submitCaseForReview(req, res, next) {
     });
 
     const updated = await findCaseById(caseId);
+
+    // Notify every active REVIEWER (best-effort, after success). The
+    // service never throws, so notification failure cannot break the
+    // submitted status change.
+    const reviewers = await findActiveReviewers();
+    if (reviewers && reviewers.length > 0) {
+      await notifyCaseSubmittedForReview({
+        reviewerIds: reviewers.map((r) => r.id),
+        caseId: Number(caseId),
+        caseNumber: caseRow.case_number,
+      });
+    }
+
     return res.json({
       success: true,
       message: "Case submitted for review",
@@ -617,6 +806,16 @@ async function createNewAssignment(req, res, next) {
 
     await connection.commit();
 
+    // Notify the newly assigned officer (best-effort, after commit). The
+    // service never throws, so a notification failure cannot roll back or
+    // break the completed assignment transaction.
+    await notifyCaseAssigned({
+      userId: officerId,
+      caseId: Number(caseId),
+      caseNumber: existing.case_number,
+      reassigned: action === "CASE_REASSIGNED",
+    });
+
     const assignments = await findAssignmentsByCase(caseId);
     return res.status(201).json({
       success: true,
@@ -722,9 +921,13 @@ async function deleteCaseAssignment(req, res, next) {
 }
 
 module.exports = {
+  assertCaseViewAccess,
   listCases,
   createNewCase,
   getCaseById,
+  getCaseIntelligence,
+  getCaseTimeline,
+  getCaseSummary,
   updateCaseById,
   updateCaseStatusById,
   submitCaseForReview,

@@ -15,12 +15,17 @@ const {
   downloadVersion,
   verifyVersionIntegrity,
   summarizeDocument,
+  classifyDocument,
+  extractEntities,
+  getChainOfCustody,
 } = require("../controllers/documentController");
 const { authenticate, authorize } = require("../middleware/authMiddleware");
 const {
   documentIdParamValidator,
   documentVersionParamValidator,
   documentSummarizeValidators,
+  documentClassifyValidators,
+  documentEntitiesValidators,
   documentListValidators,
   uploadDocumentValidators,
   validateRequest,
@@ -210,6 +215,38 @@ router.post(
   summarizeDocument
 );
 
+// POST /api/documents/:id/classify — AI document classification.
+// Requires the same read+download permissions the user needs to access
+// the document content, so a user can never classify a document they
+// cannot already access. Rate-limited separately from other endpoints.
+// The optional body field versionNumber selects the exact version to
+// classify; when omitted the server classifies the current version.
+router.post(
+  "/:id/classify",
+  authorize("documents:read", "documents:download"),
+  aiSummaryLimiter,
+  documentClassifyValidators,
+  validateRequest,
+  classifyDocument
+);
+
+// POST /api/documents/:id/entities — AI entity extraction.
+// Requires the same read+download permissions the user needs to access
+// the document content, so a user can never extract entities from a
+// document they cannot already access. Rate-limited separately from
+// other endpoints. The optional body field versionNumber selects the
+// exact version to extract from; when omitted the server extracts from
+// the current version. The stored result always uses the version
+// resolved server-side by readDocumentText().
+router.post(
+  "/:id/entities",
+  authorize("documents:read", "documents:download"),
+  aiSummaryLimiter,
+  documentEntitiesValidators,
+  validateRequest,
+  extractEntities
+);
+
 // DELETE /api/documents/:id — soft-delete a document
 router.delete(
   "/:id",
@@ -262,6 +299,18 @@ router.get(
   documentVersionParamValidator,
   validateRequest,
   verifyVersionIntegrity
+);
+
+// GET /api/documents/:id/chain-of-custody — complete chronological custody trail.
+// Requires the same read permissions as listing a document's version history
+// AND the same per-document case/ownership authorization as other document
+// endpoints (enforced inside the controller).
+router.get(
+  "/:id/chain-of-custody",
+  authorize("documents:read", "versions:read"),
+  documentIdParamValidator,
+  validateRequest,
+  getChainOfCustody
 );
 
 module.exports = router;

@@ -54,10 +54,12 @@ function isValidPriority(priority) {
  * primary assigned user. Never returns password_hash. Assignment details
  * can be fetched separately via findAssignmentsByCase.
  * @param {number|string} id
+ * @param {object} [exec] - pool or a transactional connection (tests).
  * @returns {Promise<object|null>}
  */
-async function findCaseById(id) {
-  const [rows] = await pool.query(
+async function findCaseById(id, exec) {
+  const executor = exec || pool;
+  const [rows] = await executor.query(
     "SELECT c.id, c.case_number, c.title, c.case_type, c.description, " +
       "c.status, c.priority, c.created_by, c.assigned_to, " +
       "c.created_at, c.updated_at, " +
@@ -480,10 +482,12 @@ async function deleteCase(id) {
  * Return all assignments for a case, joined with user display info.
  * Never returns password_hash.
  * @param {number|string} caseId
+ * @param {object} [exec] - pool or a transactional connection (tests).
  * @returns {Promise<object[]>}
  */
-async function findAssignmentsByCase(caseId) {
-  const [rows] = await pool.query(
+async function findAssignmentsByCase(caseId, exec) {
+  const executor = exec || pool;
+  const [rows] = await executor.query(
     "SELECT ca.id AS assignment_id, ca.case_id, ca.user_id, " +
       "ca.assignment_role, ca.assigned_by, ca.created_at, " +
       "u.username, u.full_name, u.email, u.is_active " +
