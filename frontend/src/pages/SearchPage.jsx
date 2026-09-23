@@ -210,7 +210,11 @@ function SearchPage() {
 
             {error && (
               <div className="error-message">
-                {error}
+                <strong>Unable to search documents</strong>
+                <p>{error}</p>
+                <button onClick={performSearch}>
+                  Try Again
+                </button>
               </div>
             )}
           </div>
@@ -284,7 +288,7 @@ function SearchPage() {
                   ))}
                 </tbody>
               </table>
-            ) : (
+            ) : !error ? (
               <div className="empty-state">
                 <span className="empty-icon">&#128269;</span>
 
@@ -298,7 +302,7 @@ function SearchPage() {
                     : "No documents match your current search or filters. Try adjusting your search terms or clearing the filters."}
                 </p>
               </div>
-            )}
+            ) : null}
           </div>
 
           <div className="security-notice">

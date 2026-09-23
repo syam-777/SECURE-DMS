@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from "react";
+﻿import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { apiFetch } from "../api/api";
 import AppLayout from "../components/AppLayout";
@@ -37,6 +37,16 @@ function CasesPage() {
   const [priorityFilter, setPriorityFilter] = useState("");
 
   const [isModalOpen, setIsModalOpen] = useState(false);
+
+  const [toasts, setToasts] = useState([]);
+
+  const showToast = useCallback((message, type = "success") => {
+    const id = Date.now();
+    setToasts((prev) => [...prev, { id, message, type }]);
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, 4000);
+  }, []);
 
   const [formData, setFormData] = useState({
     title: "",
@@ -204,15 +214,10 @@ function CasesPage() {
 
       await loadCases();
 
-      alert(
-        `Case created successfully!\n\n` +
-          `Case ID: ${createdCase?.case_number || "Created"}\n` +
-          `Title: ${createdCase?.title || formData.title}\n` +
-          `Type: ${createdCase?.case_type || formData.type}\n` +
-          `Priority: ${
-            createdCase?.priority || formData.priority
-          }\n` +
-          `Status: ${createdCase?.status || "open"}`
+      showToast(
+        `Case ${createdCase?.case_number || "created"} (${
+          createdCase?.title || formData.title
+        }) created successfully.`
       );
     } catch (err) {
       console.error("Case creation error:", err);
@@ -743,6 +748,16 @@ function CasesPage() {
             </div>
           )}
         </AppLayout>
+
+        {toasts.length > 0 && (
+          <div className="toast-container">
+            {toasts.map((toast) => (
+              <div key={toast.id} className={`toast toast-${toast.type}`}>
+                {toast.message}
+              </div>
+            ))}
+          </div>
+        )}
     </div>
   );
 }

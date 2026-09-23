@@ -1,6 +1,7 @@
 const {
   generateText,
   answerCaseQuestion,
+  parseCitations,
 } = require("../services/aiService");
 
 const { findCaseById } = require("../models/caseModel");
@@ -13,6 +14,25 @@ function httpError(statusCode, message) {
   err.statusCode = statusCode;
   err.expose = true;
   return err;
+}
+
+/**
+ * Redact any secret values that could appear inside an error message or stack
+ * before it is written to the server log. The Gemini API key is only ever read
+ * from process.env, and its actual value is never intentionally logged.
+ */
+function redactSecrets(value) {
+  if (typeof value !== "string") {
+    return value;
+  }
+
+  let text = value;
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (apiKey) {
+    text = text.split(apiKey).join("[REDACTED:gemini-api-key]");
+  }
+
+  return text.replace(/AIza[a-zA-Z0-9_\-]{20,}/g, "[REDACTED:gemini-api-key]");
 }
 
 /**
@@ -154,6 +174,14 @@ async function aiAsk(req, res, next) {
       documents: boundedDocuments,
     });
 
+    let citations = [];
+    try {
+      citations = parseCitations(answer, boundedDocuments);
+    } catch {
+      // Citation parsing is best-effort: never fail the request because of it.
+      citations = [];
+    }
+
     await logAuditEvent({
       userId: req.user.id,
       action: "AI_CASE_QUESTION_ASKED",
@@ -181,6 +209,7 @@ async function aiAsk(req, res, next) {
         title: document.title,
         versionNumber: document.versionNumber,
       })),
+      citations,
     });
   } catch (err) {
     if (err.code === "GEMINI_NOT_CONFIGURED") {
@@ -200,6 +229,31 @@ async function aiAsk(req, res, next) {
     if (err.statusCode && err.expose) {
       return next(err);
     }
+
+    // Safe diagostic log for local debugging only. The generic 502 response
+    // behavior is intentionally preserved. Only whitelisted fields are logged
+    // and secret/token values are redacted; the underlying error is never
+    // exposed to the client.
+    const apiResponseStatus =
+      (err.response &&
+        (err.response.status || err.response.statusCode)) ||
+      (typeof err.statusNumber === "number" ? err.statusNumber : undefined);
+    const stackSnippet = err.stack
+      ? String(err.stack)
+          .split("\n")
+          .slice(0, 3)
+          .join(" | ")
+      : "";
+    console.error(
+      "[ai] case question failed diagnostics -> " +
+        `name=${err.name || "n/a"} ` +
+        `message=${JSON.stringify(redactSecrets(err.message) || "n/a")} ` +
+        `statusCode=${err.statusCode ?? "n/a"} ` +
+        `status=${err.status ?? "n/a"} ` +
+        `apiResponseStatus=${apiResponseStatus ?? "n/a"} ` +
+        `code=${err.code ?? "n/a"} ` +
+        `stack=${stackSnippet || "n/a"}`
+    );
 
     console.error("AI case question failed");
     return next(httpError(502, "AI service is temporarily unavailable"));

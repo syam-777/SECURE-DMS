@@ -248,6 +248,23 @@ async function findActiveOfficers() {
   return rows;
 }
 
+/**
+ * List all active users whose role is REVIEWER. Used to fan out
+ * role-wide notifications (e.g. "case submitted for review") to one
+ * notification row per active reviewer. Inactive users are excluded.
+ * @returns {Promise<object[]>}
+ */
+async function findActiveReviewers() {
+  const [rows] = await pool.query(
+    "SELECT u.id, u.username, u.email, u.full_name, u.is_active " +
+      "FROM users u " +
+      "JOIN roles r ON r.id = u.role_id " +
+      "WHERE r.name = 'REVIEWER' AND u.is_active = TRUE " +
+      "ORDER BY u.full_name ASC, u.username ASC"
+  );
+  return rows;
+}
+
 module.exports = {
   findUserByEmail,
   findUserById,
@@ -261,4 +278,5 @@ module.exports = {
   usernameExists,
   getUserWithRoleAndPermissions,
   findActiveOfficers,
+  findActiveReviewers,
 };

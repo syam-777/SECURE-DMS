@@ -1,5 +1,6 @@
 import { NavLink, useNavigate } from "react-router-dom";
 import { apiFetch } from "../api/api";
+import NotificationBell from "./NotificationBell";
 
 function getUser() {
   try {
@@ -49,8 +50,17 @@ function AppLayout({ children }) {
     { to: "/cases", label: "Cases" },
     { to: "/documents", label: "Documents" },
     ...(role !== "USER" ? [{ to: "/ai-assistant", label: "AI Assistant" }] : []),
+    { to: "/tamper-detection", label: "Tamper Detection" },
     { to: "/search", label: "Search" },
-    ...(role === "ADMIN" ? [{ to: "/audit-logs", label: "Audit Logs" }] : []),
+    ...(role === "ADMIN"
+      ? [{ to: "/audit-logs", label: "Audit Logs" }]
+      : []),
+    ...(role === "ADMIN"
+      ? [{ to: "/security-center", label: "Security Center" }]
+      : []),
+    ...(role === "ADMIN"
+      ? [{ to: "/admin-analytics", label: "Analytics" }]
+      : []),
     ...(role === "ADMIN" || role === "USER"
       ? [{ to: "/verifications", label: "Officer Verification" }]
       : []),
@@ -66,9 +76,7 @@ function AppLayout({ children }) {
         </div>
 
         <div className="navbar-right">
-          <button className="icon-button" aria-label="Notifications">
-            &#128276;
-          </button>
+          <NotificationBell />
 
           <div className="user-area">
             <span className="user-avatar">

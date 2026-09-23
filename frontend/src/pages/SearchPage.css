@@ -339,6 +339,35 @@
   margin-right: auto;
 }
 
+.error-message {
+  background: #fee2e2;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  padding: 24px;
+  margin: 16px 0;
+  font-size: 14px;
+  text-align: center;
+}
+
+.error-message strong {
+  font-size: 16px;
+}
+
+.error-message p {
+  margin: 8px 0 16px;
+}
+
+.error-message button {
+  padding: 8px 16px;
+  background: #b91c1c;
+  color: #ffffff;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
 .security-notice {
   margin-top: 20px;
   padding: 12px 16px;

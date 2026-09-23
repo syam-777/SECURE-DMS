@@ -1,4 +1,5 @@
 ﻿import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { apiFetch } from "../api/api";
 import AppLayout from "../components/AppLayout";
 import "./AIAssistantPage.css";
@@ -80,6 +81,7 @@ function AIAssistantPage() {
       role: "assistant",
       text: response.answer,
       sources: response.sources || [],
+      citations: response.citations || [],
     };
 
     setMessages((prev) => [...prev, assistantMessage]);
@@ -201,6 +203,27 @@ function AIAssistantPage() {
                               ? ` — Version ${source.versionNumber}`
                               : ""}
                           </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {message.citations && message.citations.length > 0 && (
+                    <div className="citation-section">
+                      <span className="citation-heading">Citations</span>
+
+                      <div className="citation-cards">
+                        {message.citations.map((citation) => (
+                          <Link
+                            key={`${citation.documentId}-${citation.versionNumber}`}
+                            className="citation-card"
+                            to={`/document-details/${citation.documentId}`}
+                          >
+                            &#128196; {citation.title}
+                            {citation.versionNumber
+                              ? ` — Version ${citation.versionNumber}`
+                              : ""}
+                          </Link>
                         ))}
                       </div>
                     </div>

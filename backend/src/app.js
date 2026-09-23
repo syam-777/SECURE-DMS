@@ -15,6 +15,10 @@ const officerVerificationRoutes = require("./routes/officerVerificationRoutes");
 const passkeyRoutes = require("./routes/passkeyRoutes");
 const aiRoutes = require("./routes/aiRoutes");
 const reviewRoutes = require("./routes/reviewRoutes");
+const notificationRoutes = require("./routes/notificationRoutes");
+const securityRoutes = require("./routes/securityRoutes");
+const adminAnalyticsRoutes = require("./routes/adminAnalyticsRoutes");
+const caseEvidenceGraphRoutes = require("./routes/caseEvidenceGraphRoutes");
 
 const app = express();
 
@@ -61,6 +65,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/roles", roleRoutes);
 app.use("/api/cases", caseRoutes);
+app.use("/api/cases", caseEvidenceGraphRoutes);
 app.use("/api/documents", documentRoutes);
 app.use("/api/search", searchRoutes);
 app.use("/api/audit-logs", auditRoutes);
@@ -69,6 +74,9 @@ app.use("/api/verifications", officerVerificationRoutes);
 app.use("/api/passkeys", passkeyRoutes);
 app.use("/api/ai", aiRoutes);
 app.use("/api/reviews", reviewRoutes);
+app.use("/api/notifications", notificationRoutes);
+app.use("/api/security", securityRoutes);
+app.use("/api/admin/analytics", adminAnalyticsRoutes);
 
 app.use(notFoundHandler);
 app.use(errorHandler);

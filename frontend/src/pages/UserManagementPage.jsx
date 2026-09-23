@@ -71,6 +71,8 @@ function UserManagementPage() {
   const [formErrors, setFormErrors] = useState({});
   const [creating, setCreating] = useState(false);
 
+  const [confirmAction, setConfirmAction] = useState(null);
+
   const [toasts, setToasts] = useState([]);
 
   const getCurrentUser = () => {
@@ -217,12 +219,7 @@ function UserManagementPage() {
     }
   };
 
-  const handleRoleChange = async (userId, newRole) => {
-    if (userId === currentUser.id || userId === currentUser._id) {
-      showToast("You cannot change your own role.", "error");
-      return;
-    }
-
+  const performRoleChange = async (userId, newRole) => {
     try {
       const data = await apiFetch(`/users/${userId}/role`, {
         method: "PATCH",
@@ -254,23 +251,24 @@ function UserManagementPage() {
     }
   };
 
-  const handleToggleActive = async (user) => {
-    const isSelf =
-      (user.id != null &&
-        currentUser.id != null &&
-        String(user.id) === String(currentUser.id)) ||
-      (user._id != null &&
-        currentUser._id != null &&
-        String(user._id) === String(currentUser._id));
-
-    if (isSelf && isUserActive(user)) {
-      showToast("You cannot deactivate your own account.", "error");
+  const handleRoleChange = (userId, newRole) => {
+    if (userId === currentUser.id || userId === currentUser._id) {
+      showToast("You cannot change your own role.", "error");
       return;
     }
 
-    const endpoint = isUserActive(user)
-      ? `/users/${user.id || user._id}/deactivate`
-      : `/users/${user.id || user._id}/activate`;
+    const targetUser = users.find(
+      (u) => String(u.id || u._id) === String(userId)
+    );
+    if (!targetUser) return;
+
+    setConfirmAction({ type: "role", user: targetUser, newRole });
+  };
+
+  const performStatusChange = async (user, activating) => {
+    const endpoint = activating
+      ? `/users/${user.id || user._id}/activate`
+      : `/users/${user.id || user._id}/deactivate`;
 
     try {
       const data = await apiFetch(endpoint, { method: "PATCH" });
@@ -278,12 +276,12 @@ function UserManagementPage() {
       if (!data.success) {
         throw new Error(
           data.message ||
-            `Failed to ${isUserActive(user) ? "deactivate" : "activate"} user`
+            `Failed to ${activating ? "activate" : "deactivate"} user`
         );
       }
 
       showToast(
-        `User ${isUserActive(user) ? "deactivated" : "activated"} successfully.`
+        `User ${activating ? "activated" : "deactivated"} successfully.`
       );
       loadUsers();
     } catch (err) {
@@ -302,6 +300,42 @@ function UserManagementPage() {
       } else {
         showToast(err.message || "Failed to update user status", "error");
       }
+    }
+  };
+
+  const handleToggleActive = (user) => {
+    const isSelf =
+      (user.id != null &&
+        currentUser.id != null &&
+        String(user.id) === String(currentUser.id)) ||
+      (user._id != null &&
+        currentUser._id != null &&
+        String(user._id) === String(currentUser._id));
+
+    if (isSelf && isUserActive(user)) {
+      showToast("You cannot deactivate your own account.", "error");
+      return;
+    }
+
+    if (isUserActive(user)) {
+      setConfirmAction({ type: "deactivate", user });
+    } else {
+      performStatusChange(user, true);
+    }
+  };
+
+  const handleConfirmAction = async () => {
+    const action = confirmAction;
+    setConfirmAction(null);
+    if (!action) return;
+
+    if (action.type === "role") {
+      await performRoleChange(
+        action.user.id || action.user._id,
+        action.newRole
+      );
+    } else if (action.type === "deactivate") {
+      await performStatusChange(action.user, false);
     }
   };
 
@@ -692,6 +726,136 @@ function UserManagementPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {confirmAction && (
+        <div
+          className="modal-overlay"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setConfirmAction(null);
+            }
+          }}
+        >
+          <div className="modal-content">
+            {confirmAction.type === "role" ? (
+              <>
+                <div className="modal-header">
+                  <div>
+                    <h2 className="modal-title">Change User Role</h2>
+                    <p className="modal-subtitle">
+                      Confirm the new role for this user.
+                    </p>
+                  </div>
+                  <button
+                    className="modal-close"
+                    onClick={() => setConfirmAction(null)}
+                  >
+                    &times;
+                  </button>
+                </div>
+
+                <p className="form-label">User</p>
+                <p className="confirm-detail">
+                  {confirmAction.user.full_name ||
+                    confirmAction.user.fullName ||
+                    confirmAction.user.username ||
+                    "—"}
+                  {confirmAction.user.email
+                    ? ` (${confirmAction.user.email})`
+                    : ""}
+                </p>
+
+                <p className="form-label">Current Role</p>
+                <p className="confirm-detail">
+                  {getUserRole(confirmAction.user)}
+                </p>
+
+                <p className="form-label">New Role</p>
+                <p className="confirm-detail confirm-new-role">
+                  {confirmAction.newRole}
+                </p>
+
+                <p className="confirm-consequence">
+                  This change takes effect immediately and updates this
+                  user&apos;s permissions.
+                </p>
+
+                <div className="modal-actions">
+                  <button
+                    type="button"
+                    className="cancel-button"
+                    onClick={() => setConfirmAction(null)}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="submit-button"
+                    onClick={handleConfirmAction}
+                  >
+                    Confirm Change
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="modal-header">
+                  <div>
+                    <h2 className="modal-title">Deactivate User</h2>
+                    <p className="modal-subtitle">
+                      Confirm deactivation for this user.
+                    </p>
+                  </div>
+                  <button
+                    className="modal-close"
+                    onClick={() => setConfirmAction(null)}
+                  >
+                    &times;
+                  </button>
+                </div>
+
+                <p className="form-label">User</p>
+                <p className="confirm-detail">
+                  {confirmAction.user.full_name ||
+                    confirmAction.user.fullName ||
+                    confirmAction.user.username ||
+                    "—"}
+                  {confirmAction.user.email
+                    ? ` (${confirmAction.user.email})`
+                    : ""}
+                </p>
+
+                <p className="form-label">Current Role</p>
+                <p className="confirm-detail">
+                  {getUserRole(confirmAction.user)}
+                </p>
+
+                <p className="confirm-consequence">
+                  This user will be blocked from logging in and using the
+                  system.
+                </p>
+
+                <div className="modal-actions">
+                  <button
+                    type="button"
+                    className="cancel-button"
+                    onClick={() => setConfirmAction(null)}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="action-button danger"
+                    onClick={handleConfirmAction}
+                  >
+                    Deactivate
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

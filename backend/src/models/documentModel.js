@@ -84,8 +84,9 @@ function sha256File(filePath) {
   });
 }
 
-async function findDocumentById(id) {
-  const [rows] = await pool.query(
+async function findDocumentById(id, exec) {
+  const executor = exec || pool;
+  const [rows] = await executor.query(
     "SELECT d.id, d.case_id, d.title, d.description, d.document_type, " +
       "d.status, d.current_version, d.uploaded_by, d.created_at, d.updated_at, " +
       "u.username AS uploader_username, u.full_name AS uploader_name " +
@@ -111,8 +112,9 @@ async function findDocumentVersion(documentId, versionNumber) {
   return rows[0] || null;
 }
 
-async function findVersionsByDocument(documentId) {
-  const [rows] = await pool.query(
+async function findVersionsByDocument(documentId, exec) {
+  const executor = exec || pool;
+  const [rows] = await executor.query(
     "SELECT dv.id, dv.document_id, dv.version_number, " +
       "dv.original_file_name, dv.mime_type, dv.file_size, dv.checksum, " +
       "dv.uploaded_by, dv.created_at, " +
@@ -137,7 +139,8 @@ async function findAllDocuments({
   order = "asc",
   officerId = null,
   ownerUserId = null,
-} = {}) {
+} = {}, exec) {
+  const executor = exec || pool;
   const safePage = Math.max(1, Number(page) || 1);
   const safeLimit = Math.min(100, Math.max(1, Number(limit) || 20));
   const offset = (safePage - 1) * safeLimit;
@@ -196,13 +199,13 @@ async function findAllDocuments({
   const sortCol = DOCUMENT_SORTABLE_COLUMNS.includes(sort) ? sort : "id";
   const orderDir = String(order).toLowerCase() === "desc" ? "DESC" : "ASC";
 
-  const [countResult] = await pool.query(
+  const [countResult] = await executor.query(
     "SELECT COUNT(*) AS total FROM documents d " + whereSql,
     params
   );
   const total = countResult[0].total;
 
-  const [rows] = await pool.query(
+  const [rows] = await executor.query(
     "SELECT d.id, d.case_id, d.title, d.description, d.document_type, " +
       "d.status, d.current_version, d.uploaded_by, " +
       "d.created_at, d.updated_at, " +
