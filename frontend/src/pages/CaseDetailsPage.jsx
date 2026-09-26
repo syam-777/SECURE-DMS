@@ -781,60 +781,6 @@ function CaseDetailsPage() {
           {activeTab === "overview" && (
             <div className="workspace-overview">
               <div className="workspace-section">
-                <h3 className="section-title">Case Snapshot</h3>
-                <div className="workspace-snapshot-grid">
-                  <div className="workspace-snapshot-field">
-                    <span className="workspace-snapshot-label">
-                      Case Number
-                    </span>
-                    <span className="workspace-snapshot-value workspace-snapshot-highlight">
-                      {caseData.case_number}
-                    </span>
-                  </div>
-                  <div className="workspace-snapshot-field">
-                    <span className="workspace-snapshot-label">Case Type</span>
-                    <span className="workspace-snapshot-value">
-                      {caseData.case_type || "—"}
-                    </span>
-                  </div>
-                  <div className="workspace-snapshot-field">
-                    <span className="workspace-snapshot-label">Status</span>
-                    <span className="workspace-snapshot-value">
-                      <span
-                        className={`status-badge status-${String(
-                          caseData.status
-                        ).toLowerCase()}`}
-                      >
-                        {titleCase(caseData.status)}
-                      </span>
-                    </span>
-                  </div>
-                  <div className="workspace-snapshot-field">
-                    <span className="workspace-snapshot-label">Priority</span>
-                    <span className="workspace-snapshot-value">
-                      {priorityValueMap[caseData.priority] ||
-                        titleCase(caseData.priority) ||
-                        "—"}
-                    </span>
-                  </div>
-                  <div className="workspace-snapshot-field">
-                    <span className="workspace-snapshot-label">Created</span>
-                    <span className="workspace-snapshot-value">
-                      {formatDate(caseData.created_at)}
-                    </span>
-                  </div>
-                  <div className="workspace-snapshot-field">
-                    <span className="workspace-snapshot-label">
-                      Last Updated
-                    </span>
-                    <span className="workspace-snapshot-value">
-                      {formatDate(caseData.updated_at)}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="workspace-section">
                 <div className="workspace-section-heading">
                   <h3 className="section-title">Investigation Stats</h3>
                 </div>

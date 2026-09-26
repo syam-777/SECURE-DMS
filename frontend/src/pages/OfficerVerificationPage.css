@@ -516,6 +516,19 @@
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
 }
 
+/* Scoped to this page: the auth pages' global `.form-group input` rule sets
+   white text, which also matched this form. Force black text/placeholders. */
+.officer-verification-page .form-input,
+.officer-verification-page .form-select {
+  color: #000000;
+}
+
+.officer-verification-page .form-input::placeholder,
+.officer-verification-page .form-select::placeholder {
+  color: #000000;
+  opacity: 1;
+}
+
 .form-error {
   font-size: 12px;
   color: #b91c1c;
