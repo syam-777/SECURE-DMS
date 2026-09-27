@@ -103,7 +103,10 @@ function safeAuditRecord(record) {
 async function listAuditLogs(req, res, next) {
   try {
     const page = Math.max(1, parseInt(req.query.page, 10) || 1);
-    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
+    const limit = Math.min(
+      100,
+      Math.max(1, parseInt(req.query.limit, 10) || 20),
+    );
 
     const options = {
       page,
@@ -231,21 +234,21 @@ async function getBlockchainBlocks(req, res, next) {
 async function debugLedgerInfo(req, res) {
   try {
     const [dbRows] = await pool.query(
-      "SELECT DATABASE() AS db, @@hostname AS host, @@port AS port"
+      "SELECT DATABASE() AS db, @@hostname AS host, @@port AS port",
     );
 
     const [ledgerRows] = await pool.query(
       "SELECT COUNT(*) AS total_blocks, " +
         "MIN(block_index) AS min_block, " +
         "MAX(block_index) AS max_block " +
-        "FROM blockchain_audit_ledger"
+        "FROM blockchain_audit_ledger",
     );
 
     const [firstBlock] = await pool.query(
       "SELECT block_index, audit_log_id, data_hash, previous_hash, " +
         "block_hash, created_at " +
         "FROM blockchain_audit_ledger " +
-        "WHERE block_index = 1"
+        "WHERE block_index = 1",
     );
 
     res.json({
@@ -276,12 +279,15 @@ async function debugLedgerHash(req, res, next) {
         "@@session.time_zone AS session_tz, " +
         "@@system_time_zone AS system_tz " +
         "FROM blockchain_audit_ledger b " +
-        "WHERE b.block_index = 1 LIMIT 1"
+        "WHERE b.block_index = 1 LIMIT 1",
     );
 
     const block = rows[0];
+
     if (!block) {
-      return res.status(404).json({ error: "block_index = 1 not found" });
+      return res.status(404).json({
+        error: "block_index = 1 not found",
+      });
     }
 
     const storedHash = block.block_hash;
@@ -293,25 +299,48 @@ async function debugLedgerHash(req, res, next) {
       createdAt: block.created_at,
       createdAtRaw: block.created_at_raw,
       createdAtUnix: block.created_at_unix,
-    }).map((candidate) => ({
+    });
+
+    const candidateResults = candidates.map((candidate) => ({
       label: candidate.label,
       createdAtIso: candidate.createdAtIso,
       blockHash: candidate.blockHash,
-      matchesStoredHash: candidate.blockHash !== null && candidate.blockHash === storedHash,
+      matchesStoredHash:
+        candidate.blockHash !== null && candidate.blockHash === storedHash,
       error: candidate.error,
+    }));
+
+    const canonicalInputUsedForHash = candidates.map((candidate) => ({
+      label: candidate.label,
+      createdAtIso: candidate.createdAtIso,
+      canonicalInput: `${block.previous_hash}|${block.data_hash}|${candidate.createdAtIso}`,
+      recomputedHash: candidate.blockHash,
+      matchesStoredHash:
+        candidate.blockHash !== null && candidate.blockHash === storedHash,
     }));
 
     return res.json({
       block_index: block.block_index,
+
       block_hash: storedHash,
+      previous_hash: block.previous_hash,
+      data_hash: block.data_hash,
+
       created_at: block.created_at,
       created_at_raw: block.created_at_raw,
       created_at_unix: block.created_at_unix,
+
       session_tz: block.session_tz,
       system_tz: block.system_tz,
       node_tz_offset_minutes: new Date().getTimezoneOffset(),
-      matching_variants: candidates.filter((c) => c.matchesStoredHash).map((c) => c.label),
-      candidates,
+
+      matching_variants: candidateResults
+        .filter((c) => c.matchesStoredHash)
+        .map((c) => c.label),
+
+      canonicalInputUsedForHash,
+
+      candidates: candidateResults,
     });
   } catch (err) {
     return next(err);
