@@ -7,6 +7,7 @@ const {
 const {
   verifyAuditBlockchain,
   listLedgerBlocks,
+  computeBlockHashCandidates,
 } = require("../models/blockchainAuditModel");
 const { pool } = require("../config/database");
 
@@ -259,6 +260,64 @@ async function debugLedgerInfo(req, res) {
   }
 }
 
+/**
+ * TEMPORARY diagnostic for the genesis block. Returns the stored timestamp in
+ * every representation the DB can supply, plus every block_hash candidate that
+ * `computeBlockHashCandidates` derives from it, flagged against the stored
+ * hash. Read-only: SELECTs only.
+ */
+async function debugLedgerHash(req, res, next) {
+  try {
+    const [rows] = await pool.query(
+      "SELECT b.block_index, b.block_hash, b.previous_hash, b.data_hash, " +
+        "b.created_at, " +
+        "CAST(b.created_at AS CHAR) AS created_at_raw, " +
+        "UNIX_TIMESTAMP(b.created_at) AS created_at_unix, " +
+        "@@session.time_zone AS session_tz, " +
+        "@@system_time_zone AS system_tz " +
+        "FROM blockchain_audit_ledger b " +
+        "WHERE b.block_index = 1 LIMIT 1"
+    );
+
+    const block = rows[0];
+    if (!block) {
+      return res.status(404).json({ error: "block_index = 1 not found" });
+    }
+
+    const storedHash = block.block_hash;
+
+    const candidates = computeBlockHashCandidates({
+      previousHash: block.previous_hash,
+      blockIndex: block.block_index,
+      dataHash: block.data_hash,
+      createdAt: block.created_at,
+      createdAtRaw: block.created_at_raw,
+      createdAtUnix: block.created_at_unix,
+    }).map((candidate) => ({
+      label: candidate.label,
+      createdAtIso: candidate.createdAtIso,
+      blockHash: candidate.blockHash,
+      matchesStoredHash: candidate.blockHash !== null && candidate.blockHash === storedHash,
+      error: candidate.error,
+    }));
+
+    return res.json({
+      block_index: block.block_index,
+      block_hash: storedHash,
+      created_at: block.created_at,
+      created_at_raw: block.created_at_raw,
+      created_at_unix: block.created_at_unix,
+      session_tz: block.session_tz,
+      system_tz: block.system_tz,
+      node_tz_offset_minutes: new Date().getTimezoneOffset(),
+      matching_variants: candidates.filter((c) => c.matchesStoredHash).map((c) => c.label),
+      candidates,
+    });
+  } catch (err) {
+    return next(err);
+  }
+}
+
 module.exports = {
   listAuditLogs,
   getAuditLogFilters,
@@ -266,6 +325,7 @@ module.exports = {
   verifyBlockchain,
   getBlockchainBlocks,
   debugLedgerInfo,
+  debugLedgerHash,
   safeAuditRecord,
   safeAuditDetails,
 };

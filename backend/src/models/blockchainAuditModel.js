@@ -624,6 +624,7 @@ module.exports = {
   listLedgerBlocks,
   computeDataHash,
   computeBlockHash,
+  computeBlockHashCandidates,
   canonicalAuditPayload,
   reportBlockOneDiagnostic,
   GENESIS_PREVIOUS_HASH,

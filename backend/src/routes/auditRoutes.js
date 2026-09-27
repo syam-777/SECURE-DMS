@@ -8,6 +8,7 @@ const {
   verifyBlockchain,
   getBlockchainBlocks,
   debugLedgerInfo,
+  debugLedgerHash,
 } = require("../controllers/auditController");
 const {
   authenticate,
@@ -47,6 +48,15 @@ router.get(
   "/blockchain/debug",
   authorize("audit:read"),
   debugLedgerInfo
+);
+
+// TEMPORARY diagnostic. Dumps genesis created_at in every representation plus
+// every computeBlockHashCandidates variant, flagged against the stored hash.
+// Read-only. Remove before production.
+router.get(
+  "/blockchain/debug-hash",
+  authorize("audit:read"),
+  debugLedgerHash
 );
 
 router.get(

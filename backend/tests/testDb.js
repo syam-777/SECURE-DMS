@@ -28,7 +28,13 @@ const path = require("path");
 const mysql = require("mysql2/promise");
 require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
 
-const MIGRATIONS_DIR = path.join(__dirname, "..", "src", "database", "migrations");
+const MIGRATIONS_DIR = path.join(
+  __dirname,
+  "..",
+  "src",
+  "database",
+  "migrations",
+);
 const SEEDS_DIR = path.join(__dirname, "..", "src", "database", "seeds");
 
 /**
@@ -43,20 +49,20 @@ function resolveDatabaseNames() {
 
   if (!mainDbName) {
     throw new Error(
-      "Cannot run tests: DB_NAME is not set. Refusing to guess the application database."
+      "Cannot run tests: DB_NAME is not set. Refusing to guess the application database.",
     );
   }
   if (!testDbName) {
     throw new Error(
       "Cannot run tests: unable to determine the test database name. " +
-        "Set DB_NAME_TEST or ensure DB_NAME is set."
+        "Set DB_NAME_TEST or ensure DB_NAME is set.",
     );
   }
   if (!/[_]test$/i.test(testDbName)) {
     throw new Error(
       "Refusing to run tests: test database name '" +
         testDbName +
-        "' must end with '_test'."
+        "' must end with '_test'.",
     );
   }
   if (testDbName === mainDbName) {
@@ -65,7 +71,7 @@ function resolveDatabaseNames() {
         testDbName +
         "') is the same as the application database DB_NAME ('" +
         mainDbName +
-        "'). The application database must never be used as the test target."
+        "'). The application database must never be used as the test target.",
     );
   }
 
@@ -74,15 +80,13 @@ function resolveDatabaseNames() {
 
 function buildConnectionConfig(database) {
   return {
+    timezone: "Z",
     host: process.env.DB_HOST,
     user: process.env.DB_USER,
     password: process.env.DB_PASSWORD,
     port: Number(process.env.DB_PORT),
     database,
-    ssl:
-      process.env.DB_SSL === "true"
-        ? { minVersion: "TLSv1.2" }
-        : undefined,
+    ssl: process.env.DB_SSL === "true" ? { minVersion: "TLSv1.2" } : undefined,
     connectTimeout: 15000,
     enableKeepAlive: true,
     keepAliveInitialDelay: 0,
@@ -143,7 +147,11 @@ function splitSqlStatements(sql) {
     if (ch === "/" && next === "*") {
       const end = sql.indexOf("*/", i + 2);
       if (end === -1) {
-        throw new Error("unterminated block comment '" + (current + sql.slice(i)).split("\n")[0] + "'");
+        throw new Error(
+          "unterminated block comment '" +
+            (current + sql.slice(i)).split("\n")[0] +
+            "'",
+        );
       }
       if (sql[i + 2] === "!") {
         current += sql.slice(i, end + 2);
@@ -229,7 +237,9 @@ async function runSqlDirectory(connection, dirPath) {
   for (const file of files) {
     const sql = fs.readFileSync(path.join(dirPath, file), "utf8");
     const statements = splitSqlStatements(sql);
-    console.log("   running " + file + " (" + statements.length + " statements)");
+    console.log(
+      "   running " + file + " (" + statements.length + " statements)",
+    );
     for (const statement of statements) {
       await connection.query(statement);
     }
@@ -258,7 +268,7 @@ async function createAndMigrateTestDatabase(testDbName) {
     await manager.query(
       "CREATE DATABASE IF NOT EXISTS `" +
         testDbName +
-        "` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
+        "` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci",
     );
     console.log("   ensured test database '" + testDbName + "' exists");
   } finally {
@@ -269,7 +279,7 @@ async function createAndMigrateTestDatabase(testDbName) {
   //    connection. Statements are executed INDIVIDUALLY (multi-statement
   //    SQL is disabled on TiDB Cloud, so it is never used here).
   const migrationConn = await mysql.createConnection(
-    buildConnectionConfig(testDbName)
+    buildConnectionConfig(testDbName),
   );
   try {
     console.log("   applying migrations/seeds to '" + testDbName + "'...");
@@ -281,7 +291,7 @@ async function createAndMigrateTestDatabase(testDbName) {
       "INSERT IGNORE INTO users " +
         "(username, email, password_hash, full_name, is_active) " +
         "VALUES ('__dms_test_admin__', '__dms_test_admin__@example.local', " +
-        "'__test_placeholder_hash____do_not_use__', 'DMS Test Admin', 1)"
+        "'__test_placeholder_hash____do_not_use__', 'DMS Test Admin', 1)",
     );
   } finally {
     await migrationConn.end();
@@ -289,7 +299,9 @@ async function createAndMigrateTestDatabase(testDbName) {
 
   if (mainDbName) {
     console.log(
-      "   NOTE: application database '" + mainDbName + "' was NOT modified (read-only)."
+      "   NOTE: application database '" +
+        mainDbName +
+        "' was NOT modified (read-only).",
     );
   }
 }
@@ -301,7 +313,7 @@ async function createAndMigrateTestDatabase(testDbName) {
  */
 async function getTestUserId(pool) {
   const [rows] = await pool.query(
-    "SELECT id FROM users WHERE username = '__dms_test_admin__' LIMIT 1"
+    "SELECT id FROM users WHERE username = '__dms_test_admin__' LIMIT 1",
   );
   if (!rows[0]) {
     throw new Error("Test user not found; did migrate seeds run?");
@@ -333,7 +345,7 @@ async function initDatabase() {
         row.db +
         "' but expected '" +
         testDbName +
-        "'"
+        "'",
     );
   }
 
@@ -360,7 +372,7 @@ async function resetData(pool, expectedTestDbName) {
         row.db +
         "' is not the isolated test database '" +
         expectedTestDbName +
-        "'"
+        "'",
     );
   }
   await pool.query("DELETE FROM blockchain_audit_ledger");
