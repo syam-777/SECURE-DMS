@@ -55,9 +55,10 @@ async function deriveUniqueUsername(email) {
 }
 
 async function getRoleIdByName(roleName) {
-  const [rows] = await pool.query("SELECT id FROM roles WHERE name = ? LIMIT 1", [
-    roleName,
-  ]);
+  const [rows] = await pool.query(
+    "SELECT id FROM roles WHERE name = ? LIMIT 1",
+    [roleName],
+  );
   return rows[0] ? rows[0].id : null;
 }
 
@@ -81,7 +82,7 @@ async function register(req, res, next) {
     if (userRoleId == null) {
       throw httpError(
         500,
-        "Default USER role is not configured. Contact an administrator."
+        "Default USER role is not configured. Contact an administrator.",
       );
     }
 
@@ -181,6 +182,8 @@ async function login(req, res, next) {
       user: safeUser(userData),
     });
   } catch (err) {
+    console.error("LOGIN ERROR:");
+    console.error(err);
     return next(err);
   }
 }

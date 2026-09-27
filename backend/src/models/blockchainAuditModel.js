@@ -69,7 +69,8 @@ function canonicalAuditPayload(event) {
     audit_log_id: event.auditLogId != null ? Number(event.auditLogId) : null,
     user_id: event.userId != null ? Number(event.userId) : null,
     action: event.action != null ? String(event.action) : "",
-    resource_type: event.resourceType != null ? String(event.resourceType) : null,
+    resource_type:
+      event.resourceType != null ? String(event.resourceType) : null,
     resource_id: event.resourceId != null ? Number(event.resourceId) : null,
     ip_address: event.ipAddress != null ? String(event.ipAddress) : null,
   };
@@ -92,7 +93,12 @@ function computeDataHash(event) {
  * @param {object} block - { previousHash, blockIndex, dataHash, createdAtIso }.
  * @returns {string} lowercase hex SHA-256 digest.
  */
-function computeBlockHash({ previousHash, blockIndex, dataHash, createdAtIso }) {
+function computeBlockHash({
+  previousHash,
+  blockIndex,
+  dataHash,
+  createdAtIso,
+}) {
   const input =
     previousHash +
     "|" +
@@ -113,7 +119,7 @@ function computeBlockHash({ previousHash, blockIndex, dataHash, createdAtIso }) 
  */
 async function findLastBlock(exec) {
   const [rows] = await exec.query(
-    "SELECT * FROM blockchain_audit_ledger ORDER BY block_index DESC LIMIT 1"
+    "SELECT * FROM blockchain_audit_ledger ORDER BY block_index DESC LIMIT 1",
   );
   return rows[0] || null;
 }
@@ -175,7 +181,7 @@ async function appendAuditBlock(event, exec) {
       previousHash,
       blockHash,
       new Date(createdAtIso),
-    ]
+    ],
   );
 
   return {
@@ -259,12 +265,17 @@ function readRawTimestampString(value) {
 function computeBlockHashCandidates(block) {
   const createdAt = block.createdAt;
   const rawString =
-    block.createdAtRaw != null ? String(block.createdAtRaw) : readRawTimestampString(createdAt);
-  const unixSeconds = block.createdAtUnix != null ? Number(block.createdAtUnix) : null;
+    block.createdAtRaw != null
+      ? String(block.createdAtRaw)
+      : readRawTimestampString(createdAt);
+  const unixSeconds =
+    block.createdAtUnix != null ? Number(block.createdAtUnix) : null;
 
   const createdAtIsoByVariant = {
     A: toIsoStringOrNull(createdAt),
-    B: rawString ? toIsoStringOrNull(rawString.trim().replace(" ", "T") + "Z") : null,
+    B: rawString
+      ? toIsoStringOrNull(rawString.trim().replace(" ", "T") + "Z")
+      : null,
     C: rawString != null ? String(rawString) : null,
     D: unixSeconds != null ? toIsoStringOrNull(unixSeconds * 1000) : null,
   };
@@ -320,7 +331,7 @@ async function readBlockOneTimestampContext(exec, block) {
 
   try {
     const [tzRows] = await exec.query(
-      "SELECT @@session.time_zone AS session_tz, @@system_time_zone AS system_tz"
+      "SELECT @@session.time_zone AS session_tz, @@system_time_zone AS system_tz",
     );
     if (tzRows[0]) {
       context.sessionTimeZone = tzRows[0].session_tz;
@@ -335,7 +346,7 @@ async function readBlockOneTimestampContext(exec, block) {
       "SELECT CAST(created_at AS CHAR) AS created_at_raw, " +
         "UNIX_TIMESTAMP(created_at) AS created_at_unix " +
         "FROM blockchain_audit_ledger WHERE block_index = ? LIMIT 1",
-      [Number(block.block_index)]
+      [Number(block.block_index)],
     );
     if (tsRows[0]) {
       context.rawString =
@@ -343,7 +354,9 @@ async function readBlockOneTimestampContext(exec, block) {
           ? String(tsRows[0].created_at_raw)
           : readRawTimestampString(block.created_at);
       context.unixSeconds =
-        tsRows[0].created_at_unix != null ? Number(tsRows[0].created_at_unix) : null;
+        tsRows[0].created_at_unix != null
+          ? Number(tsRows[0].created_at_unix)
+          : null;
     }
   } catch (error) {
     context.readError =
@@ -382,7 +395,8 @@ async function reportBlockOneDiagnostic(exec, block) {
     createdAtUnix: unixSeconds,
   }).map((candidate) => ({
     ...candidate,
-    matches: candidate.blockHash !== null && candidate.blockHash === storedBlockHash,
+    matches:
+      candidate.blockHash !== null && candidate.blockHash === storedBlockHash,
   }));
 
   const matchingVariants = attempts.filter((a) => a.matches).map((a) => a.key);
@@ -397,23 +411,39 @@ async function reportBlockOneDiagnostic(exec, block) {
   console.log(" STORED block_hash              : " + storedBlockHash);
   console.log(" data_hash                      : " + block.data_hash);
   console.log(" previous_hash                  : " + block.previous_hash);
-  console.log(" hash input template            : previous_hash|block_index|data_hash|createdAtIso");
+  console.log(
+    " hash input template            : previous_hash|block_index|data_hash|createdAtIso",
+  );
   console.log(" ---- created_at representations ----");
   console.log(
-    " created_at (driver value)      : " + String(createdAt) + "  [" + (createdAt instanceof Date ? "Date" : typeof createdAt) + "]"
+    " created_at (driver value)      : " +
+      String(createdAt) +
+      "  [" +
+      (createdAt instanceof Date ? "Date" : typeof createdAt) +
+      "]",
   );
-  console.log(" created_at.toISOString()       : " + String(toIsoStringOrNull(createdAt)));
+  console.log(
+    " created_at.toISOString()       : " + String(toIsoStringOrNull(createdAt)),
+  );
   console.log(" created_at (raw DB string)     : " + String(rawString));
   console.log(" UNIX_TIMESTAMP(created_at)     : " + String(unixSeconds));
-  console.log(" MySQL @@session.time_zone      : " + String(context.sessionTimeZone));
-  console.log(" MySQL @@system.time_zone       : " + String(context.systemTimeZone));
   console.log(
-    " Node timezone (Intl)           : " + String(Intl.DateTimeFormat().resolvedOptions().timeZone)
+    " MySQL @@session.time_zone      : " + String(context.sessionTimeZone),
   );
   console.log(
-    " Node getTimezoneOffset() (min) : " + String(nodeTimezoneOffsetMinutes)
+    " MySQL @@system.time_zone       : " + String(context.systemTimeZone),
   );
-  console.log(" Node UTC offset                : " + formatUtcOffset(nodeTimezoneOffsetMinutes));
+  console.log(
+    " Node timezone (Intl)           : " +
+      String(Intl.DateTimeFormat().resolvedOptions().timeZone),
+  );
+  console.log(
+    " Node getTimezoneOffset() (min) : " + String(nodeTimezoneOffsetMinutes),
+  );
+  console.log(
+    " Node UTC offset                : " +
+      formatUtcOffset(nodeTimezoneOffsetMinutes),
+  );
   if (context.readError) {
     console.log(" read error                     : " + context.readError);
   }
@@ -429,13 +459,21 @@ async function reportBlockOneDiagnostic(exec, block) {
   }
   console.log(" ---- RESULT ----");
   if (matchingVariants.length === 0) {
-    console.log(" NO tested variant reproduces the stored block_hash for block #1.");
-    console.log(" The stored hash was produced from a timestamp representation not in the list above.");
+    console.log(
+      " NO tested variant reproduces the stored block_hash for block #1.",
+    );
+    console.log(
+      " The stored hash was produced from a timestamp representation not in the list above.",
+    );
   } else {
     for (const key of matchingVariants) {
       const attempt = attempts.find((a) => a.key === key);
       console.log(
-        " MATCHING VARIANT " + key + " (" + attempt.label + ") reproduces the stored block_hash."
+        " MATCHING VARIANT " +
+          key +
+          " (" +
+          attempt.label +
+          ") reproduces the stored block_hash.",
       );
       console.log("   createdAtIso = " + String(attempt.createdAtIso));
     }
@@ -480,7 +518,7 @@ async function verifyAuditBlockchain(exec, options = {}) {
       "UNIX_TIMESTAMP(b.created_at) AS created_at_unix " +
       "FROM blockchain_audit_ledger b " +
       "LEFT JOIN audit_logs a ON a.id = b.audit_log_id " +
-      "ORDER BY b.block_index ASC"
+      "ORDER BY b.block_index ASC",
   );
 
   const failures = [];
@@ -551,10 +589,22 @@ async function verifyAuditBlockchain(exec, options = {}) {
     });
 
     const matchedCandidate = hashCandidates.find(
-      (candidate) => candidate.blockHash !== null && candidate.blockHash === block.block_hash
+      (candidate) =>
+        candidate.blockHash !== null &&
+        candidate.blockHash === block.block_hash,
     );
 
     if (!matchedCandidate) {
+      console.log("\n========== HASH DEBUG ==========");
+      console.log("BLOCK:", block.block_index);
+      console.log("STORED:", block.block_hash);
+
+      hashCandidates.forEach((c) => {
+        console.log(c.key, c.blockHash);
+      });
+
+      console.log("================================\n");
+
       failures.push({
         blockIndex: Number(block.block_index),
         reason: "block_hash does not match recomputed value",
@@ -567,7 +617,8 @@ async function verifyAuditBlockchain(exec, options = {}) {
   }
 
   const valid = failures.length === 0;
-  const lastBlockIndex = rows.length > 0 ? Number(rows[rows.length - 1].block_index) : null;
+  const lastBlockIndex =
+    rows.length > 0 ? Number(rows[rows.length - 1].block_index) : null;
 
   return {
     valid,
@@ -600,7 +651,7 @@ async function listLedgerBlocks(limit = 50, exec) {
       "FROM blockchain_audit_ledger b " +
       "LEFT JOIN audit_logs a ON a.id = b.audit_log_id " +
       "ORDER BY b.block_index ASC LIMIT ?",
-    [safeLimit]
+    [safeLimit],
   );
   return rows.map((row) => ({
     id: row.id,

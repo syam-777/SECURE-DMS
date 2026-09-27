@@ -184,6 +184,7 @@ async function getAuditLogById(req, res, next) {
 async function verifyBlockchain(req, res, next) {
   try {
     const result = await verifyAuditBlockchain();
+
     return res.json({
       success: true,
       data: result,

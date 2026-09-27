@@ -76,13 +76,15 @@ function authorize(...requiredPermissions) {
       }
 
       const data = await getUserWithRoleAndPermissions(req.user.id);
+
       if (!data) {
         throw unauthorized("User no longer exists");
       }
 
       const userPermissions = data.permissions || [];
+
       const missing = requiredPermissions.filter(
-        (p) => !userPermissions.includes(p)
+        (p) => !userPermissions.includes(p),
       );
 
       if (requiredPermissions.length > 0 && missing.length > 0) {
@@ -95,7 +97,6 @@ function authorize(...requiredPermissions) {
     }
   };
 }
-
 module.exports = {
   authenticate,
   authorize,

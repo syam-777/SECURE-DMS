@@ -25,9 +25,11 @@ const app = express();
 app.use(helmet());
 
 const allowedOrigins = [
-  process.env.FRONTEND_ORIGIN || "http://localhost:5173",
+  "http://localhost:5173",
+  "http://localhost:5174",
+  process.env.FRONTEND_ORIGIN,
   "https://secure-qnxwk1r40-a1-9a8d.vercel.app",
-];
+].filter(Boolean);
 
 function isAllowedOrigin(origin) {
   if (!origin) return true; // non-browser requests (curl, server-to-server)
