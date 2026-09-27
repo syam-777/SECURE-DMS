@@ -7,6 +7,7 @@ const {
   getAuditLogById,
   verifyBlockchain,
   getBlockchainBlocks,
+  debugLedgerInfo,
 } = require("../controllers/auditController");
 const {
   authenticate,
@@ -38,6 +39,14 @@ router.get(
   "/blockchain/blocks",
   authorize("audit:read"),
   getBlockchainBlocks
+);
+
+// TEMPORARY diagnostic endpoint. Inherits router-level `authenticate` plus
+// authorize("audit:read"). Remove before production.
+router.get(
+  "/blockchain/debug",
+  authorize("audit:read"),
+  debugLedgerInfo
 );
 
 router.get(

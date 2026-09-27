@@ -8,6 +8,7 @@ const {
   verifyAuditBlockchain,
   listLedgerBlocks,
 } = require("../models/blockchainAuditModel");
+const { pool } = require("../config/database");
 
 function httpError(statusCode, message) {
   const err = new Error(message);
@@ -222,12 +223,49 @@ async function getBlockchainBlocks(req, res, next) {
   }
 }
 
+/**
+ * TEMPORARY diagnostic. Reports DB connection identity, ledger span, and the
+ * genesis block. Exposes internal host/port — do not ship to production.
+ */
+async function debugLedgerInfo(req, res) {
+  try {
+    const [dbRows] = await pool.query(
+      "SELECT DATABASE() AS db, @@hostname AS host, @@port AS port"
+    );
+
+    const [ledgerRows] = await pool.query(
+      "SELECT COUNT(*) AS total_blocks, " +
+        "MIN(block_index) AS min_block, " +
+        "MAX(block_index) AS max_block " +
+        "FROM blockchain_audit_ledger"
+    );
+
+    const [firstBlock] = await pool.query(
+      "SELECT block_index, audit_log_id, data_hash, previous_hash, " +
+        "block_hash, created_at " +
+        "FROM blockchain_audit_ledger " +
+        "WHERE block_index = 1"
+    );
+
+    res.json({
+      connection: dbRows[0],
+      ledger: ledgerRows[0],
+      genesis: firstBlock[0],
+    });
+  } catch (err) {
+    res.status(500).json({
+      error: err.message,
+    });
+  }
+}
+
 module.exports = {
   listAuditLogs,
   getAuditLogFilters,
   getAuditLogById,
   verifyBlockchain,
   getBlockchainBlocks,
+  debugLedgerInfo,
   safeAuditRecord,
   safeAuditDetails,
 };
