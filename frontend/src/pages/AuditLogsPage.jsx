@@ -1,7 +1,18 @@
-﻿import { useEffect, useMemo, useState } from "react";
+﻿import { useCallback, useEffect, useRef, useState } from "react";
 import "./AuditLogsPage.css";
 import { apiFetch } from "../api/api";
 import AppLayout from "../components/AppLayout";
+
+const PAGE_SIZE = 50;
+const SEARCH_DEBOUNCE_MS = 300;
+
+// Empty string means "no filter" for both dropdowns. The backend treats an
+// empty filter exactly the same way, so the sentinel needs no translation.
+const ALL_FILTER = "";
+
+// The backend maps userId=0 to `user_id IS NULL`, i.e. system /
+// unauthenticated events such as a failed login.
+const SYSTEM_USER = "0";
 
 const formatTimestamp = (value) => {
   if (!value) return "—";
@@ -75,11 +86,32 @@ const getStatus = (action) => {
 
 function AuditLogsPage() {
   const [logs, setLogs] = useState([]);
-  const [searchTerm, setSearchTerm] = useState("");
-  const [actionFilter, setActionFilter] = useState("All Actions");
-  const [userFilter, setUserFilter] = useState("All Users");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+
+  // Server-side pagination. `total` and `totalPages` come from the API
+  // `pagination` envelope, never from the length of the current page.
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
+
+  // `searchInput` is the raw controlled input; `searchTerm` is the debounced
+  // value actually sent to the API.
+  const [searchInput, setSearchInput] = useState("");
+  const [searchTerm, setSearchTerm] = useState("");
+
+  const [actionFilter, setActionFilter] = useState(ALL_FILTER);
+  const [userFilter, setUserFilter] = useState(ALL_FILTER);
+
+  // Loaded once from /audit-logs/filters. Deriving these from the visible
+  // page would make the dropdowns change on every page and would hide any
+  // action that only appears further down the ledger.
+  const [actionOptions, setActionOptions] = useState([]);
+  const [userOptions, setUserOptions] = useState([]);
+
+  // Holds the in-flight request so a superseded or unmounted fetch is
+  // aborted instead of writing state.
+  const requestRef = useRef(null);
 
   // Blockchain audit ledger verification state
   const [ledgerResult, setLedgerResult] = useState(null);
@@ -104,89 +136,162 @@ function AuditLogsPage() {
     }
   };
 
+  // Load the dropdown options once. Failures are non-fatal: the dropdowns
+  // simply fall back to offering only "All".
   useEffect(() => {
     let cancelled = false;
 
-    async function loadAuditLogs() {
+    async function loadFilterOptions() {
       try {
-        setLoading(true);
-        setError("");
+        const response = await apiFetch("/audit-logs/filters");
 
-        const response = await apiFetch("/audit-logs?limit=100");
+        if (cancelled) return;
 
-        if (!response?.success) {
-          throw new Error(
-            response?.message || "Failed to load audit logs"
+        if (response?.success && response.data) {
+          setActionOptions(
+            Array.isArray(response.data.actions) ? response.data.actions : []
+          );
+          setUserOptions(
+            Array.isArray(response.data.users) ? response.data.users : []
           );
         }
-
+      } catch {
         if (!cancelled) {
-          setLogs(Array.isArray(response.data) ? response.data : []);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setError(err.message || "Failed to load audit logs");
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
+          setActionOptions([]);
+          setUserOptions([]);
         }
       }
     }
 
-    loadAuditLogs();
+    loadFilterOptions();
 
     return () => {
       cancelled = true;
     };
   }, []);
 
-  const actionOptions = useMemo(() => {
-    const actions = logs
-      .map((log) => formatAction(log.action))
-      .filter(Boolean);
+  // Debounce the search box, and jump back to page 1 whenever the applied
+  // term changes so the user never lands on an out-of-range page.
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearchTerm(searchInput.trim());
+      setPage(1);
+    }, SEARCH_DEBOUNCE_MS);
 
-    return ["All Actions", ...new Set(actions)];
-  }, [logs]);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
 
-  const userOptions = useMemo(() => {
-    const users = logs
-      .map((log) =>
-        log.userId != null ? `User #${log.userId}` : "System"
-      )
-      .filter(Boolean);
+  const loadAuditLogs = useCallback(async () => {
+    if (requestRef.current) {
+      requestRef.current.abort();
+    }
 
-    return ["All Users", ...new Set(users)];
-  }, [logs]);
+    const controller = new AbortController();
+    requestRef.current = controller;
 
-  const filteredLogs = useMemo(() => {
-    const term = searchTerm.trim().toLowerCase();
+    try {
+      setLoading(true);
+      setError("");
 
-    return logs.filter((log) => {
-      const action = formatAction(log.action);
-      const resource = getResourceLabel(log);
-      const details = getDetailsText(log.details);
-      const user =
-        log.userId != null ? `User #${log.userId}` : "System";
+      const params = new URLSearchParams({
+        page: String(page),
+        limit: String(PAGE_SIZE),
+        sort: "created_at",
+        order: "desc",
+      });
 
-      const matchesSearch =
-        !term ||
-        user.toLowerCase().includes(term) ||
-        action.toLowerCase().includes(term) ||
-        resource.toLowerCase().includes(term) ||
-        details.toLowerCase().includes(term);
+      if (actionFilter) {
+        params.set("action", actionFilter);
+      }
 
-      const matchesAction =
-        actionFilter === "All Actions" || action === actionFilter;
+      if (userFilter) {
+        params.set("userId", userFilter);
+      }
 
-      const matchesUser =
-        userFilter === "All Users" || user === userFilter;
+      if (searchTerm) {
+        params.set("search", searchTerm);
+      }
 
-      return matchesSearch && matchesAction && matchesUser;
-    });
-  }, [logs, searchTerm, actionFilter, userFilter]);
+      const response = await apiFetch(`/audit-logs?${params.toString()}`, {
+        signal: controller.signal,
+      });
 
-  const totalActivities = logs.length;
+      if (!response?.success) {
+        throw new Error(
+          response?.message || "Failed to load audit logs"
+        );
+      }
+
+      const serverTotal = Number(response.pagination?.total) || 0;
+      const serverTotalPages = Number(response.pagination?.totalPages) || 0;
+
+      setLogs(Array.isArray(response.data) ? response.data : []);
+      setTotal(serverTotal);
+      setTotalPages(serverTotalPages);
+
+      // If the result set shrank below the page currently shown (for
+      // example records were removed server-side), fall back to the last
+      // page that still exists. Handled here rather than in an effect so it
+      // does not cost an extra render pass.
+      if (serverTotalPages > 0 && page > serverTotalPages) {
+        setPage(serverTotalPages);
+      }
+    } catch (err) {
+      if (controller.signal.aborted) return;
+
+      setError(err.message || "Failed to load audit logs");
+      setLogs([]);
+      setTotal(0);
+      setTotalPages(0);
+    } finally {
+      if (!controller.signal.aborted) {
+        setLoading(false);
+      }
+    }
+  }, [page, actionFilter, userFilter, searchTerm]);
+
+  useEffect(() => {
+    loadAuditLogs();
+
+    return () => {
+      if (requestRef.current) {
+        requestRef.current.abort();
+      }
+    };
+  }, [loadAuditLogs]);
+
+  const handleActionChange = (event) => {
+    setActionFilter(event.target.value);
+    setPage(1);
+  };
+
+  const handleUserChange = (event) => {
+    setUserFilter(event.target.value);
+    setPage(1);
+  };
+
+  const canGoPrevious = page > 1 && !loading;
+  const canGoNext = page < totalPages && !loading;
+
+  const handlePrevious = () => {
+    setPage((current) => Math.max(1, current - 1));
+  };
+
+  const handleNext = () => {
+    setPage((current) =>
+      current < totalPages ? current + 1 : current
+    );
+  };
+
+  const isFiltered = Boolean(actionFilter || userFilter || searchTerm);
+
+  const pageStart = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
+  const pageEnd = Math.min(page * PAGE_SIZE, total);
+
+  // The remaining three cards describe only the rows on screen, so they are
+  // labelled accordingly. "Total Activities" uses the server-side total and
+  // therefore spans every page.
+  const totalActivities = total;
 
   const documentActivities = logs.filter(
     (log) => String(log.resourceType || "").toLowerCase() === "document"
@@ -221,19 +326,19 @@ function AuditLogsPage() {
             <div className="summary-card">
               <span className="card-icon">&#128196;</span>
               <span className="card-value">{documentActivities}</span>
-              <span className="card-label">Document Activities</span>
+              <span className="card-label">Documents · This Page</span>
             </div>
 
             <div className="summary-card">
               <span className="card-icon">&#128274;</span>
               <span className="card-value">{caseActivities}</span>
-              <span className="card-label">Case Activities</span>
+              <span className="card-label">Cases · This Page</span>
             </div>
 
             <div className="summary-card security-card">
               <span className="card-icon">&#9888;&#65039;</span>
               <span className="card-value">{securityEvents}</span>
-              <span className="card-label">Security Events</span>
+              <span className="card-label">Security · This Page</span>
             </div>
           </div>
 
@@ -241,9 +346,9 @@ function AuditLogsPage() {
             <input
               className="search-input"
               type="text"
-              placeholder="Search by user, action, resource, or details..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Search actions, resources, IDs, or details..."
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
             />
           </div>
 
@@ -254,11 +359,12 @@ function AuditLogsPage() {
               <select
                 id="action-filter"
                 value={actionFilter}
-                onChange={(e) => setActionFilter(e.target.value)}
+                onChange={handleActionChange}
               >
-                {actionOptions.map((action) => (
-                  <option key={action} value={action}>
-                    {action}
+                <option value={ALL_FILTER}>All Actions</option>
+                {actionOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {formatAction(option.value)} ({option.count})
                   </option>
                 ))}
               </select>
@@ -270,13 +376,22 @@ function AuditLogsPage() {
               <select
                 id="user-filter"
                 value={userFilter}
-                onChange={(e) => setUserFilter(e.target.value)}
+                onChange={handleUserChange}
               >
-                {userOptions.map((user) => (
-                  <option key={user} value={user}>
-                    {user}
-                  </option>
-                ))}
+                <option value={ALL_FILTER}>All Users</option>
+                {userOptions.map((option) => {
+                  const isSystem = option.userId == null;
+                  const value = isSystem
+                    ? SYSTEM_USER
+                    : String(option.userId);
+
+                  return (
+                    <option key={value} value={value}>
+                      {isSystem ? "System" : `User #${option.userId}`} (
+                      {option.count})
+                    </option>
+                  );
+                })}
               </select>
             </div>
           </div>
@@ -293,7 +408,7 @@ function AuditLogsPage() {
                 </h3>
                 <p className="empty-text">{error}</p>
               </div>
-            ) : filteredLogs.length > 0 ? (
+            ) : logs.length > 0 ? (
               <table className="audit-table">
                 <thead>
                   <tr>
@@ -307,7 +422,7 @@ function AuditLogsPage() {
                 </thead>
 
                 <tbody>
-                  {filteredLogs.map((log) => {
+                  {logs.map((log) => {
                     const action = formatAction(log.action);
                     const status = getStatus(log.action);
 
@@ -359,13 +474,44 @@ function AuditLogsPage() {
               <div className="empty-state">
                 <span className="empty-icon">&#128269;</span>
                 <h3 className="empty-title">
-                  No audit records found
+                  {isFiltered
+                    ? "No matching audit records"
+                    : "No audit records found"}
                 </h3>
                 <p className="empty-text">
-                  No audit records match your current search or filters.
+                  {isFiltered
+                    ? "No audit records match your current search or filters."
+                    : "Audit records will appear here as activity occurs."}
                 </p>
               </div>
             )}
+          </div>
+
+          <div className="pagination">
+            <span className="pagination-info">
+              {total === 0
+                ? "No records"
+                : `Showing ${pageStart}–${pageEnd} of ${total}`}
+              {totalPages > 1 ? ` · Page ${page} of ${totalPages}` : ""}
+            </span>
+
+            <button
+              className="pagination-button"
+              type="button"
+              onClick={handlePrevious}
+              disabled={!canGoPrevious}
+            >
+              Previous
+            </button>
+
+            <button
+              className="pagination-button"
+              type="button"
+              onClick={handleNext}
+              disabled={!canGoNext}
+            >
+              Next
+            </button>
           </div>
 
           <div className="security-notice">

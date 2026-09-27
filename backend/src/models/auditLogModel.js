@@ -116,8 +116,26 @@ const AUDIT_LIST_SELECT =
 /**
  * Builds the WHERE clause and parameter list shared by the read-only
  * audit log queries. Only filters that are actually supplied are applied.
+ *
+ * `userId` accepts two forms:
+ *   - a positive integer  -> `user_id = ?`
+ *   - 0 (the sentinel)    -> `user_id IS NULL`, i.e. system / unauthenticated
+ *     events such as a failed login. Zero is not a valid users.id because
+ *     AUTO_INCREMENT starts at 1, so the sentinel cannot collide with a
+ *     real user.
+ *
+ * `search` is a free-text term matched against the columns a user would
+ * realistically scan. It is deliberately built from parameterised
+ * placeholders only — the term is never interpolated into the SQL text.
  */
-function buildAuditFilters({ action = "", resourceType = "", userId = "", from = "", to = "" } = {}) {
+function buildAuditFilters({
+  action = "",
+  resourceType = "",
+  userId = "",
+  from = "",
+  to = "",
+  search = "",
+} = {}) {
   const where = [];
   const params = [];
 
@@ -131,9 +149,13 @@ function buildAuditFilters({ action = "", resourceType = "", userId = "", from =
     params.push(String(resourceType).trim());
   }
 
-  if (userId && Number(userId) > 0) {
-    where.push("user_id = ?");
-    params.push(Number(userId));
+  if (userId != null && String(userId).trim() !== "" && Number.isInteger(Number(userId))) {
+    if (Number(userId) === 0) {
+      where.push("user_id IS NULL");
+    } else if (Number(userId) > 0) {
+      where.push("user_id = ?");
+      params.push(Number(userId));
+    }
   }
 
   if (from) {
@@ -152,20 +174,38 @@ function buildAuditFilters({ action = "", resourceType = "", userId = "", from =
     }
   }
 
+  if (search && String(search).trim()) {
+    const like = "%" + String(search).trim() + "%";
+    // CAST(... AS CHAR) keeps the comparison well-defined for the nullable
+    // INTEGER columns and for the JSON `details` column. A NULL operand
+    // simply yields NULL (not true), so the surrounding OR chain still
+    // matches on whichever column actually held the value.
+    where.push(
+      "(action LIKE ? OR resource_type LIKE ? OR CAST(resource_id AS CHAR) LIKE ? " +
+        "OR CAST(user_id AS CHAR) LIKE ? OR CAST(details AS CHAR) LIKE ?)"
+    );
+    params.push(like, like, like, like, like);
+  }
+
   return { where, params };
 }
 
 /**
  * Paginated, filtered read of audit_logs. Read-only.
  *
+ * `limit` is clamped to 1..100 so a client can never request an unbounded
+ * result set. The client is expected to send `page` + `limit` and read the
+ * matching `pagination` envelope produced by countAuditLogs.
+ *
  * @param {{
  *   page?: number,
  *   limit?: number,
  *   action?: string,
  *   resourceType?: string,
- *   userId?: number|string,
+ *   userId?: number|string,   // 0 selects system (user_id IS NULL) events
  *   from?: string,
  *   to?: string,
+ *   search?: string,
  *   sort?: string,
  *   order?: string
  * }} options
@@ -200,12 +240,17 @@ async function findAuditLogs(options = {}) {
 /**
  * Counts audit rows matching the same filters used by findAuditLogs.
  *
+ * `search` must be included here exactly as it is in findAuditLogs,
+ * otherwise `pagination.total` would describe the unfiltered table and
+ * the client would render page counts that do not match the rows shown.
+ *
  * @param {{
  *   action?: string,
  *   resourceType?: string,
  *   userId?: number|string,
  *   from?: string,
- *   to?: string
+ *   to?: string,
+ *   search?: string
  * }} options
  * @returns {Promise<number>}
  */
@@ -217,6 +262,46 @@ async function countAuditLogs(options = {}) {
   const [rows] = await pool.query("SELECT COUNT(*) AS total FROM audit_logs " + whereSql, params);
 
   return rows[0].total;
+}
+
+/**
+ * Returns the distinct filter values present in audit_logs, so a paginated
+ * client can populate its dropdowns once instead of deriving them from
+ * whichever slice of rows happens to be on screen.
+ *
+ * Deriving options from the current page is a real bug under server-side
+ * paging: the list would shrink and change shape on every page, an action
+ * recorded only on page 7 would be unselectable, and a selected value could
+ * disappear from its own dropdown.
+ *
+ * Read-only. Intentionally NOT affected by the list filters — the caller
+ * needs the full option set, not the narrowed one.
+ *
+ * @returns {Promise<{actions: Array<{value: string, count: number}>,
+ *   users: Array<{userId: number|null, count: number}>}>}
+ */
+async function findAuditFilterOptions() {
+  const [actionRows] = await pool.query(
+    "SELECT action, COUNT(*) AS total FROM audit_logs " +
+      "WHERE action IS NOT NULL AND action <> '' " +
+      "GROUP BY action ORDER BY action ASC"
+  );
+
+  const [userRows] = await pool.query(
+    "SELECT user_id, COUNT(*) AS total FROM audit_logs " +
+      "GROUP BY user_id ORDER BY (user_id IS NULL) ASC, user_id ASC"
+  );
+
+  return {
+    actions: actionRows.map((row) => ({
+      value: row.action,
+      count: Number(row.total),
+    })),
+    users: userRows.map((row) => ({
+      userId: row.user_id == null ? null : Number(row.user_id),
+      count: Number(row.total),
+    })),
+  };
 }
 
 /**
@@ -235,4 +320,5 @@ module.exports = {
   findAuditLogs,
   countAuditLogs,
   findAuditLogById,
+  findAuditFilterOptions,
 };

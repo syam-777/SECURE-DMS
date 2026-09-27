@@ -2,6 +2,7 @@ const {
   findAuditLogs,
   countAuditLogs,
   findAuditLogById,
+  findAuditFilterOptions,
 } = require("../models/auditLogModel");
 const {
   verifyAuditBlockchain,
@@ -90,10 +91,17 @@ function safeAuditRecord(record) {
   };
 }
 
+/**
+ * Paginated, filtered list of audit logs.
+ *
+ * `page` and `limit` are clamped here with the SAME bounds the model
+ * applies, so the `pagination` envelope always describes the rows that were
+ * actually returned rather than the values the client happened to send.
+ */
 async function listAuditLogs(req, res, next) {
   try {
-    const page = parseInt(req.query.page, 10) || 1;
-    const limit = parseInt(req.query.limit, 10) || 20;
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
 
     const options = {
       page,
@@ -103,13 +111,14 @@ async function listAuditLogs(req, res, next) {
       userId: (req.query.userId || "").trim(),
       from: (req.query.from || "").trim(),
       to: (req.query.to || "").trim(),
+      search: (req.query.search || "").trim(),
       sort: (req.query.sort || "created_at").trim(),
       order: (req.query.order || "desc").trim().toLowerCase(),
     };
 
     const records = await findAuditLogs(options);
     const total = await countAuditLogs(options);
-    const totalPages = Math.ceil(total / limit);
+    const totalPages = total > 0 ? Math.ceil(total / limit) : 0;
 
     return res.json({
       success: true,
@@ -120,6 +129,27 @@ async function listAuditLogs(req, res, next) {
         total,
         totalPages,
       },
+    });
+  } catch (err) {
+    return next(err);
+  }
+}
+
+/**
+ * Returns the distinct action values and distinct actor ids present in
+ * audit_logs, for populating the client-side filter dropdowns.
+ *
+ * The UI fetches this once on mount rather than deriving options from the
+ * current page, because a paginated page slice cannot contain every
+ * possible filter value.
+ */
+async function getAuditLogFilters(req, res, next) {
+  try {
+    const options = await findAuditFilterOptions();
+
+    return res.json({
+      success: true,
+      data: options,
     });
   } catch (err) {
     return next(err);
@@ -194,6 +224,7 @@ async function getBlockchainBlocks(req, res, next) {
 
 module.exports = {
   listAuditLogs,
+  getAuditLogFilters,
   getAuditLogById,
   verifyBlockchain,
   getBlockchainBlocks,

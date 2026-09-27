@@ -555,8 +555,8 @@ const auditLogsListValidators = [
   query("userId")
     .optional()
     .trim()
-    .isInt({ min: 1 })
-    .withMessage("userId must be a positive integer"),
+    .isInt({ min: 0 })
+    .withMessage("userId must be a non-negative integer (0 selects system events)"),
   query("from")
     .optional()
     .trim()

@@ -386,6 +386,43 @@
   border-radius: 8px;
 }
 
+/* ── Pagination ────────────────────────────────────────────────── */
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
+
+.pagination-info {
+  font-size: 13px;
+  color: #64748b;
+  margin-right: auto;
+}
+
+.pagination-button {
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #2563eb;
+  background: #eef2ff;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.pagination-button:hover:not(:disabled) {
+  background: #e0e7ff;
+}
+
+.pagination-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* ── Blockchain Audit Ledger section ──────────────────────────── */
 
 .ledger-section {
