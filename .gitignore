@@ -1,0 +1,25 @@
+# Root .gitignore - shared rules for the whole SECURE-DMS repository.
+# Package-level .gitignore files in backend/ and frontend/ still apply.
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+
+# Environment variables and local secrets
+.env
+.env.*
+!.env.example
+
+# User uploads and runtime data
+uploads/
+
+# Logs
+logs/
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
